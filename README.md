@@ -23,6 +23,8 @@
 
 ## Credits
 
+This is a fork of [this repo](https://github.com/chrisys/train-departure-display)
+
 These are the credits from the originator of this work - [Chris Crocker-White ](https://github.com/chrisys) - full credit goes to them. 
 
 A big thanks to [Chris Hutchinson](https://github.com/chrishutchinson/) who originally started this project and inspired me to develop it further. [Blake](https://github.com/ghostseven) made some further improvements and this project was forked from [there](https://github.com/ghostseven/UK-Train-Departure-Display).
