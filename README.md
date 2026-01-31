@@ -7,6 +7,7 @@
 - **See local departures**: Display the depatures from your local station at home for up to date train information.
 - **3D-printable cases**: Print your own miniature case to keep everything tidy - both desktop and 'hanging' style available.
 - **Dual display support**: Run two displays each showing departures from different platforms from a single Raspberry Pi.
+- **Scrolls next X trains**: Loops through user defined number of next trains
 
 ![](assets/blog-header.jpg)
 ![](docs/images/completed-unit.jpg)
@@ -21,6 +22,8 @@
 - [Configuration](/docs/04-configuration.md)
 
 ## Credits
+
+These are the credits from the originator of this work - [Chris Crocker-White ](https://github.com/chrisys) - full credit goes to them. 
 
 A big thanks to [Chris Hutchinson](https://github.com/chrishutchinson/) who originally started this project and inspired me to develop it further. [Blake](https://github.com/ghostseven) made some further improvements and this project was forked from [there](https://github.com/ghostseven/UK-Train-Departure-Display).
 
