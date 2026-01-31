@@ -9,6 +9,12 @@ from PIL import ImageFont, Image, ImageDraw
 from trains import loadDeparturesForStation
 from config import loadConfig
 from open import isRun
+from departure_loop import (
+    build_loop_state,
+    get_looped_departures,
+    ordinal,
+    update_loop_state,
+)
 
 import RPi.GPIO as GPIO
 
@@ -19,6 +25,7 @@ from luma.core.virtual import viewport, snapshot
 from luma.core.sprite_system import framerate_regulator
 
 import socket, re, uuid
+from typing import Any, Callable
 
 def makeFont(name, size):
     font_path = os.path.abspath(
@@ -428,19 +435,88 @@ def drawSignage(device, width, height, data):
     rowTwoB = snapshot(width - callingWidth, 10,
                        renderStations(firstDepartureDestinations), interval=0.02)
 
-    if len(departures) > 1:
-        rowThreeA = snapshot(width - w - pw, 10, renderDestination(
-            departures[1], font, '2nd'), interval=config["refreshTime"])
-        rowThreeB = snapshot(w, 10, renderServiceStatus(
-            departures[1]), interval=config["refreshTime"])
-        rowThreeC = snapshot(pw, 10, renderPlatform(departures[1]), interval=config["refreshTime"])
+    loop_state = build_loop_state(
+        departures,
+        config["loopDepartureCount"],
+        time.monotonic(),
+    )
 
-    if len(departures) > 2:
-        rowFourA = snapshot(width - w - pw, 10, renderDestination(
-            departures[2], font, '3rd'), interval=10)
-        rowFourB = snapshot(w, 10, renderServiceStatus(
-            departures[2]), interval=10)
-        rowFourC = snapshot(pw, 10, renderPlatform(departures[2]), interval=config["refreshTime"])
+    def get_looped_departure_row(
+        row_offset: int,
+    ) -> tuple[int | None, dict[str, str] | None]:
+        now = time.monotonic()
+        update_loop_state(loop_state, now, config["loopDepartureInterval"])
+        looped = get_looped_departures(loop_state.departures, loop_state.index)
+        if row_offset >= len(looped):
+            return None, None
+        return looped[row_offset]
+
+    def render_looped_destination(row_offset: int) -> Callable[..., None]:
+        def drawText(draw: ImageDraw.ImageDraw, width: int, *_: Any) -> None:
+            position, departure = get_looped_departure_row(row_offset)
+            if departure is None:
+                return
+            renderDestination(departure, font, ordinal(position))(draw, width)
+
+        return drawText
+
+    def render_looped_status(row_offset: int) -> Callable[..., None]:
+        def drawText(draw: ImageDraw.ImageDraw, width: int, *_: Any) -> None:
+            _, departure = get_looped_departure_row(row_offset)
+            if departure is None:
+                return
+            renderServiceStatus(departure)(draw, width)
+
+        return drawText
+
+    def render_looped_platform(row_offset: int) -> Callable[..., None]:
+        def drawText(draw: ImageDraw.ImageDraw, *_: Any) -> None:
+            _, departure = get_looped_departure_row(row_offset)
+            if departure is None:
+                return
+            renderPlatform(departure)(draw)
+
+        return drawText
+
+    if len(loop_state.departures) > 0:
+        rowThreeA = snapshot(
+            width - w - pw,
+            10,
+            render_looped_destination(0),
+            interval=config["loopDepartureInterval"],
+        )
+        rowThreeB = snapshot(
+            w,
+            10,
+            render_looped_status(0),
+            interval=config["loopDepartureInterval"],
+        )
+        rowThreeC = snapshot(
+            pw,
+            10,
+            render_looped_platform(0),
+            interval=config["loopDepartureInterval"],
+        )
+
+    if len(loop_state.departures) > 1:
+        rowFourA = snapshot(
+            width - w - pw,
+            10,
+            render_looped_destination(1),
+            interval=config["loopDepartureInterval"],
+        )
+        rowFourB = snapshot(
+            w,
+            10,
+            render_looped_status(1),
+            interval=config["loopDepartureInterval"],
+        )
+        rowFourC = snapshot(
+            pw,
+            10,
+            render_looped_platform(1),
+            interval=config["loopDepartureInterval"],
+        )
 
     rowTime = snapshot(width, 14, renderTime, interval=0.1)
 
@@ -457,12 +533,12 @@ def drawSignage(device, width, height, data):
     virtualViewport.add_hotspot(rowTwoA, (0, 12))
     virtualViewport.add_hotspot(rowTwoB, (callingWidth, 12))
 
-    if len(departures) > 1:
+    if len(loop_state.departures) > 0:
         virtualViewport.add_hotspot(rowThreeA, (0, 24))
         virtualViewport.add_hotspot(rowThreeB, (width - w, 24))
         virtualViewport.add_hotspot(rowThreeC, (width - w - pw, 24))
 
-    if len(departures) > 2:
+    if len(loop_state.departures) > 1:
         virtualViewport.add_hotspot(rowFourA, (0, 36))
         virtualViewport.add_hotspot(rowFourB, (width - w, 36))
         virtualViewport.add_hotspot(rowFourC, (width - w - pw, 36))

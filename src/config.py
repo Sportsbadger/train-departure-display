@@ -63,4 +63,12 @@ def loadConfig():
     if os.getenv("showDepartureNumbers", "").upper() == "TRUE":
         data["showDepartureNumbers"] = True
 
+    data["loopDepartureCount"] = int(os.getenv("loopDepartureCount") or 2)
+    if data["loopDepartureCount"] < 2:
+        data["loopDepartureCount"] = 2
+
+    data["loopDepartureInterval"] = int(os.getenv("loopDepartureInterval") or 10)
+    if data["loopDepartureInterval"] < 1:
+        data["loopDepartureInterval"] = 1
+
     return data
