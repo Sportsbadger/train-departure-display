@@ -10,10 +10,10 @@ from trains import loadDeparturesForStation
 from config import loadConfig
 from open import isRun
 from departure_loop import (
+    advance_loop_index,
     build_loop_state,
     get_looped_departures,
     ordinal,
-    update_loop_state,
 )
 
 import RPi.GPIO as GPIO
@@ -441,81 +441,114 @@ def drawSignage(device, width, height, data):
         time.monotonic(),
     )
 
-    def get_looped_departure_row(
-        row_offset: int,
-    ) -> tuple[int | None, dict[str, str] | None]:
+    loop_row_gap = 12
+    loop_block_height = loop_row_gap * 2
+
+    def get_loop_render_state() -> tuple[list[tuple[int, dict[str, str]]], list[tuple[int, dict[str, str]]], float]:
         now = time.monotonic()
-        update_loop_state(loop_state, now, config["loopDepartureInterval"])
-        looped = get_looped_departures(loop_state.departures, loop_state.index)
-        if row_offset >= len(looped):
-            return None, None
-        return looped[row_offset]
+        interval_s = float(config["loopDepartureInterval"])
+        scroll_s = min(0.8, max(0.3, interval_s * 0.25))
+        elapsed = now - loop_state.last_update
+        if interval_s <= 0:
+            progress = 0.0
+        else:
+            scroll_start = max(0.0, interval_s - scroll_s)
+            if elapsed <= scroll_start:
+                progress = 0.0
+            else:
+                progress = min(1.0, (elapsed - scroll_start) / max(scroll_s, 0.01))
+        if elapsed >= interval_s:
+            loop_state.index = advance_loop_index(loop_state.index, len(loop_state.departures))
+            loop_state.last_update = now
+            progress = 0.0
+        current = get_looped_departures(loop_state.departures, loop_state.index)
+        next_index = advance_loop_index(loop_state.index, len(loop_state.departures))
+        upcoming = get_looped_departures(loop_state.departures, next_index)
+        return current, upcoming, progress
 
-    def render_looped_destination(row_offset: int) -> Callable[..., None]:
+    def draw_loop_destination(
+        draw: ImageDraw.ImageDraw,
+        y_offset: int,
+        departure: dict[str, str],
+        position: int,
+        *_: Any,
+    ) -> None:
+        if config["showDepartureNumbers"]:
+            train = f"{ordinal(position)}  {departure['aimed_departure_time']}  {departure['destination_name']}"
+        else:
+            train = f"{departure['aimed_departure_time']}  {departure['destination_name']}"
+        _, _, bitmap = cachedBitmapText(train, font)
+        draw.bitmap((0, y_offset), bitmap, fill="yellow")
+
+    def draw_loop_status(
+        draw: ImageDraw.ImageDraw,
+        y_offset: int,
+        departure: dict[str, str],
+        _position: int,
+        width: int,
+    ) -> None:
+        train = ""
+        if departure["expected_departure_time"] == "On time":
+            train = "On time"
+        elif departure["expected_departure_time"] == "Cancelled":
+            train = "Cancelled"
+        elif departure["expected_departure_time"] == "Delayed":
+            train = "Delayed"
+        else:
+            if isinstance(departure["expected_departure_time"], str):
+                train = "Exp " + departure["expected_departure_time"]
+            if departure["aimed_departure_time"] == departure["expected_departure_time"]:
+                train = "On time"
+        text_width, _, bitmap = cachedBitmapText(train, font)
+        draw.bitmap((width - text_width, y_offset), bitmap, fill="yellow")
+
+    def draw_loop_platform(
+        draw: ImageDraw.ImageDraw,
+        y_offset: int,
+        departure: dict[str, str],
+        _position: int,
+        *_: Any,
+    ) -> None:
+        if "platform" not in departure:
+            return
+        platform = "Plat " + departure["platform"]
+        if departure["platform"].lower() == "bus":
+            platform = "BUS"
+        _, _, bitmap = cachedBitmapText(platform, font)
+        draw.bitmap((0, y_offset), bitmap, fill="yellow")
+
+    def render_loop_block(
+        renderer: Callable[[ImageDraw.ImageDraw, int, dict[str, str], int, int], None],
+    ) -> Callable[..., None]:
         def drawText(draw: ImageDraw.ImageDraw, width: int, *_: Any) -> None:
-            position, departure = get_looped_departure_row(row_offset)
-            if departure is None:
-                return
-            renderDestination(departure, font, ordinal(position))(draw, width)
-
-        return drawText
-
-    def render_looped_status(row_offset: int) -> Callable[..., None]:
-        def drawText(draw: ImageDraw.ImageDraw, width: int, *_: Any) -> None:
-            _, departure = get_looped_departure_row(row_offset)
-            if departure is None:
-                return
-            renderServiceStatus(departure)(draw, width)
-
-        return drawText
-
-    def render_looped_platform(row_offset: int) -> Callable[..., None]:
-        def drawText(draw: ImageDraw.ImageDraw, *_: Any) -> None:
-            _, departure = get_looped_departure_row(row_offset)
-            if departure is None:
-                return
-            renderPlatform(departure)(draw)
+            current, upcoming, progress = get_loop_render_state()
+            current_offset = int(-progress * loop_block_height)
+            next_offset = loop_block_height + current_offset
+            for idx, (position, departure) in enumerate(current):
+                renderer(draw, current_offset + (idx * loop_row_gap), departure, position, width)
+            for idx, (position, departure) in enumerate(upcoming):
+                renderer(draw, next_offset + (idx * loop_row_gap), departure, position, width)
 
         return drawText
 
     if len(loop_state.departures) > 0:
         rowThreeA = snapshot(
             width - w - pw,
-            10,
-            render_looped_destination(0),
-            interval=config["loopDepartureInterval"],
+            loop_block_height,
+            render_loop_block(draw_loop_destination),
+            interval=0.05,
         )
         rowThreeB = snapshot(
             w,
-            10,
-            render_looped_status(0),
-            interval=config["loopDepartureInterval"],
+            loop_block_height,
+            render_loop_block(draw_loop_status),
+            interval=0.05,
         )
         rowThreeC = snapshot(
             pw,
-            10,
-            render_looped_platform(0),
-            interval=config["loopDepartureInterval"],
-        )
-
-    if len(loop_state.departures) > 1:
-        rowFourA = snapshot(
-            width - w - pw,
-            10,
-            render_looped_destination(1),
-            interval=config["loopDepartureInterval"],
-        )
-        rowFourB = snapshot(
-            w,
-            10,
-            render_looped_status(1),
-            interval=config["loopDepartureInterval"],
-        )
-        rowFourC = snapshot(
-            pw,
-            10,
-            render_looped_platform(1),
-            interval=config["loopDepartureInterval"],
+            loop_block_height,
+            render_loop_block(draw_loop_platform),
+            interval=0.05,
         )
 
     rowTime = snapshot(width, 14, renderTime, interval=0.1)
@@ -537,11 +570,6 @@ def drawSignage(device, width, height, data):
         virtualViewport.add_hotspot(rowThreeA, (0, 24))
         virtualViewport.add_hotspot(rowThreeB, (width - w, 24))
         virtualViewport.add_hotspot(rowThreeC, (width - w - pw, 24))
-
-    if len(loop_state.departures) > 1:
-        virtualViewport.add_hotspot(rowFourA, (0, 36))
-        virtualViewport.add_hotspot(rowFourB, (width - w, 36))
-        virtualViewport.add_hotspot(rowFourC, (width - w - pw, 36))
 
     virtualViewport.add_hotspot(rowTime, (0, 50))
 
