@@ -62,6 +62,8 @@ data:
     - apiKey: UPDATE_ME
     - operatingHours: 8-22
     - screenBlankHours: 1-6
+    - loopDepartureCount: 8
+    - loopDepartureCount: 10
     - screenRotation: 2
     - dualScreen: False
     - destinationStation:
