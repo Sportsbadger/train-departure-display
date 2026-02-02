@@ -123,6 +123,9 @@ pixelsLeft = 1
 pixelsUp = 0
 hasElevated = 0
 pauseCount = 0
+loopPixelsUp = 0
+loopPauseCount = 0
+loopHasElevated = 0
 
 
 def renderStations(stations):
@@ -349,7 +352,7 @@ def drawDebugScreen(device, width, height, screen="1", showTime=False):
 
 
 def drawBlankSignage(device, width, height, departureStation):
-    global stationRenderCount, pauseCount
+    global stationRenderCount, pauseCount, loopPixelsUp, loopPauseCount, loopHasElevated
 
     welcomeSize = int(fontBold.getlength("Welcome to"))
     stationSize = int(fontBold.getlength(departureStation))
@@ -444,27 +447,32 @@ def drawSignage(device, width, height, data):
     loop_row_gap = 12
     loop_block_height = loop_row_gap * 2
 
-    def get_loop_render_state() -> tuple[list[tuple[int, dict[str, str]]], list[tuple[int, dict[str, str]]], float]:
-        now = time.monotonic()
-        interval_s = float(config["loopDepartureInterval"])
-        scroll_s = min(0.8, max(0.3, interval_s * 0.25))
-        elapsed = now - loop_state.last_update
-        if interval_s <= 0:
-            progress = 0.0
-        else:
-            scroll_start = max(0.0, interval_s - scroll_s)
-            if elapsed <= scroll_start:
-                progress = 0.0
-            else:
-                progress = min(1.0, (elapsed - scroll_start) / max(scroll_s, 0.01))
-        if elapsed >= interval_s:
-            loop_state.index = advance_loop_index(loop_state.index, len(loop_state.departures))
-            loop_state.last_update = now
-            progress = 0.0
+    def get_loop_render_state() -> tuple[list[tuple[int, dict[str, str]]], list[tuple[int, dict[str, str]]], int]:
+        global loopPixelsUp, loopPauseCount, loopHasElevated
+
         current = get_looped_departures(loop_state.departures, loop_state.index)
         next_index = advance_loop_index(loop_state.index, len(loop_state.departures))
         upcoming = get_looped_departures(loop_state.departures, next_index)
-        return current, upcoming, progress
+
+        interval_s = float(config["loopDepartureInterval"])
+        target_fps = float(config["targetFPS"])
+        total_frames = max(1, int(interval_s * target_fps))
+        pause_frames = max(1, total_frames - loop_block_height)
+
+        if loopHasElevated:
+            loopPixelsUp += 1
+            if loopPixelsUp >= loop_block_height:
+                loop_state.index = next_index
+                loopPixelsUp = 0
+                loopHasElevated = 0
+                loopPauseCount = 0
+        else:
+            loopPauseCount += 1
+            if loopPauseCount >= pause_frames:
+                loopHasElevated = 1
+                loopPauseCount = 0
+
+        return current, upcoming, loopPixelsUp
 
     def draw_loop_destination(
         draw: ImageDraw.ImageDraw,
@@ -521,8 +529,8 @@ def drawSignage(device, width, height, data):
         renderer: Callable[[ImageDraw.ImageDraw, int, dict[str, str], int, int], None],
     ) -> Callable[..., None]:
         def drawText(draw: ImageDraw.ImageDraw, width: int, *_: Any) -> None:
-            current, upcoming, progress = get_loop_render_state()
-            current_offset = int(-progress * loop_block_height)
+            current, upcoming, pixel_offset = get_loop_render_state()
+            current_offset = -pixel_offset
             next_offset = loop_block_height + current_offset
             for idx, (position, departure) in enumerate(current):
                 renderer(draw, current_offset + (idx * loop_row_gap), departure, position, width)
@@ -559,6 +567,9 @@ def drawSignage(device, width, height, data):
 
     stationRenderCount = 0
     pauseCount = 0
+    loopPixelsUp = 0
+    loopPauseCount = 0
+    loopHasElevated = 0
 
     virtualViewport.add_hotspot(rowOneA, (0, 0))
     virtualViewport.add_hotspot(rowOneB, (width - w, 0))
