@@ -4,10 +4,10 @@
 
 ## Highlights
 
-- **See local departures**: Display the depatures from your local station at home for up to date train information.
+- **See local departures**: Display the departures from your local station at home for up-to-date train information.
 - **3D-printable cases**: Print your own miniature case to keep everything tidy - both desktop and 'hanging' style available.
 - **Dual display support**: Run two displays each showing departures from different platforms from a single Raspberry Pi.
-- **Scrolls next X trains**: Loops through user defined number of next trains
+- **Scrolls next X trains**: Loops through a user-defined number of next trains
 
 ![](assets/blog-header.jpg)
 ![](docs/images/completed-unit.jpg)
@@ -20,6 +20,36 @@
 - [Connecting the display to the Pi](/docs/02-connecting-the-display-to-the-pi.md)
 - [Assembling the Case](/docs/03-assembling-the-case.md)
 - [Configuration](/docs/04-configuration.md)
+
+## Quick start (balenaCloud)
+
+The recommended deployment path uses balenaCloud for fleet management and OTA updates.
+
+[![balena deploy button](https://balena.io/deploy.svg)](https://dashboard.balena-cloud.com/deploy?repoUrl=https://github.com/Sportsbadger/train-departure-display&defaultDeviceType=raspberry-pi)
+
+1. Create a balenaCloud account.
+2. Deploy using the button above.
+3. Set the required `apiKey` in the balenaCloud dashboard and optionally adjust other [configuration variables](/docs/04-configuration.md).
+
+## Configuration overview
+
+The only required environment variable is the OpenLDBWS `apiKey`. All other settings are optional and are documented in [Configuration](/docs/04-configuration.md).
+
+## Local development (headless)
+
+You can run the display loop on a development machine without a connected OLED by using `headless=True`.
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+export apiKey="your-openldbws-api-key"
+export departureStation="PAD"
+export headless="True"
+python src/main.py
+```
+
+If you are running on a Raspberry Pi with the OLED attached, omit `headless` to render to the display.
 
 ## Credits
 
