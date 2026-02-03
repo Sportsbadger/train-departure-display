@@ -446,6 +446,7 @@ def drawSignage(device, width, height, data):
 
     loop_row_gap = 12
     loop_block_height = loop_row_gap * 2
+    loop_frame_interval = 0.02
 
     def get_loop_render_state() -> tuple[list[tuple[int, dict[str, str]]], list[tuple[int, dict[str, str]]], int]:
         global loopPixelsUp, loopPauseCount, loopHasElevated
@@ -455,9 +456,8 @@ def drawSignage(device, width, height, data):
         upcoming = get_looped_departures(loop_state.departures, next_index)
 
         interval_s = float(config["loopDepartureInterval"])
-        target_fps = float(config["targetFPS"])
-        total_frames = max(1, int(interval_s * target_fps))
-        pause_frames = max(1, total_frames - loop_block_height)
+        total_frames = max(loop_block_height, int(interval_s / loop_frame_interval))
+        pause_frames = max(0, total_frames - loop_block_height)
 
         if loopHasElevated:
             loopPixelsUp += 1
@@ -544,19 +544,19 @@ def drawSignage(device, width, height, data):
             width - w - pw,
             loop_block_height,
             render_loop_block(draw_loop_destination),
-            interval=0.05,
+            interval=loop_frame_interval,
         )
         rowThreeB = snapshot(
             w,
             loop_block_height,
             render_loop_block(draw_loop_status),
-            interval=0.05,
+            interval=loop_frame_interval,
         )
         rowThreeC = snapshot(
             pw,
             loop_block_height,
             render_loop_block(draw_loop_platform),
-            interval=0.05,
+            interval=loop_frame_interval,
         )
 
     rowTime = snapshot(width, 14, renderTime, interval=0.1)
