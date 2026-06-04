@@ -7,7 +7,6 @@ from datetime import datetime
 from PIL import ImageFont, Image, ImageDraw
 
 from trains import loadDeparturesForStation
-from adsb import AdsbClient, ReceiverLocation, build_plane_rows
 from config import loadConfig
 from open import isRun
 from departure_loop import (
@@ -37,30 +36,6 @@ def makeFont(name, size):
         )
     )
     return ImageFont.truetype(font_path, size, layout_engine=ImageFont.Layout.BASIC)
-
-
-
-def renderPlaneSummary(row):
-    def drawText(draw, *_):
-        _, _, bitmap = cachedBitmapText(row["summary"], fontBold)
-        draw.bitmap((0, 0), bitmap, fill="yellow")
-
-    return drawText
-
-
-def renderPlaneMetric(row, key):
-    def drawText(draw, width, *_):
-        text = row[key]
-        text_width, _, bitmap = cachedBitmapText(text, font)
-        draw.bitmap((width - text_width, 0), bitmap, fill="yellow")
-
-    return drawText
-
-
-def renderAircraftAt(draw, *_):
-    label = "Aircraft: "
-    _, _, bitmap = cachedBitmapText(label, font)
-    draw.bitmap((0, 0), bitmap, fill="yellow")
 
 
 def renderDestination(departure, font, pos):
@@ -298,36 +273,6 @@ def loadData(apiConfig, journeyConfig, config):
         return False, False, journeyConfig['outOfHoursName']
 
 
-
-def create_adsb_client(adsb_config):
-    if not adsb_config["enabled"]:
-        return None
-
-    return AdsbClient(
-        host=adsb_config["host"],
-        port=adsb_config["port"],
-        receiver_location=ReceiverLocation(
-            latitude=adsb_config["receiverLatitude"],
-            longitude=adsb_config["receiverLongitude"],
-        ),
-        timeout_s=float(adsb_config["readTimeout"]),
-        max_age_s=float(adsb_config["maxAircraftAge"]),
-    )
-
-
-def is_plane_mode(config, started_at, now):
-    if not config["adsb"]["enabled"]:
-        return False
-    switch_interval = config["modeSwitchInterval"]
-    return int((now - started_at) // switch_interval) % 2 == 1
-
-
-def loadPlaneData(adsb_client, adsb_config):
-    if adsb_client is None:
-        return []
-    planes = adsb_client.update(adsb_config["maxPlanes"])
-    return build_plane_rows(planes)
-
 def drawStartup(device, width, height):
     virtualViewport = viewport(device, width=width, height=height)
 
@@ -436,127 +381,6 @@ def drawBlankSignage(device, width, height, departureStation):
 
     return virtualViewport
 
-
-
-def drawPlaneSignage(device, width, height, rows):
-    global stationRenderCount, pauseCount, loopPixelsUp, loopPauseCount, loopHasElevated
-
-    if len(rows) == 0:
-        return drawBlankSignage(
-            device,
-            width=width,
-            height=height,
-            departureStation="Nearby aircraft",
-        )
-
-    virtualViewport = viewport(device, width=width, height=height)
-    width = virtualViewport.width
-
-    metric_width = int(font.getlength("00000ft"))
-    aircraft_label = "Aircraft: "
-    label_width = int(font.getlength(aircraft_label))
-
-    rowOneA = snapshot(
-        width - metric_width,
-        10,
-        renderPlaneSummary(rows[0]),
-        interval=config["refreshTime"],
-    )
-    rowOneB = snapshot(
-        metric_width,
-        10,
-        renderPlaneMetric(rows[0], "altitude"),
-        interval=config["refreshTime"],
-    )
-    rowTwoA = snapshot(label_width, 10, renderAircraftAt, interval=config["refreshTime"])
-    rowTwoB = snapshot(
-        width - label_width,
-        10,
-        renderStations(rows[0]["details"]),
-        interval=0.02,
-    )
-
-    remaining_rows = rows[1:]
-    loop_state = build_loop_state(rows, config["adsb"]["maxPlanes"], time.monotonic())
-    loop_row_gap = 12
-    loop_block_height = loop_row_gap * 2
-    loop_frame_interval = 0.02
-
-    def get_plane_loop_state():
-        global loopPixelsUp, loopPauseCount, loopHasElevated
-
-        current = get_looped_departures(loop_state.departures, loop_state.index)
-        next_index = advance_loop_index(loop_state.index, len(loop_state.departures))
-        upcoming = get_looped_departures(loop_state.departures, next_index)
-        total_frames = max(
-            loop_block_height,
-            int(float(config["loopDepartureInterval"]) / loop_frame_interval),
-        )
-        pause_frames = max(0, total_frames - loop_block_height)
-
-        if loopHasElevated:
-            loopPixelsUp += 1
-            if loopPixelsUp >= loop_block_height:
-                loop_state.index = next_index
-                loopPixelsUp = 0
-                loopHasElevated = 0
-                loopPauseCount = 0
-        else:
-            loopPauseCount += 1
-            if loopPauseCount >= pause_frames:
-                loopHasElevated = 1
-                loopPauseCount = 0
-
-        return current, upcoming, loopPixelsUp
-
-    def render_plane_loop_summary(draw, width, *_):
-        current, upcoming, pixel_offset = get_plane_loop_state()
-        for base_offset, items in ((-pixel_offset, current), (loop_block_height - pixel_offset, upcoming)):
-            for index, (_position, row) in enumerate(items):
-                _, _, bitmap = cachedBitmapText(row["summary"], font)
-                draw.bitmap((0, base_offset + (index * loop_row_gap)), bitmap, fill="yellow")
-
-    def render_plane_loop_distance(draw, width, *_):
-        current, upcoming, pixel_offset = get_plane_loop_state()
-        for base_offset, items in ((-pixel_offset, current), (loop_block_height - pixel_offset, upcoming)):
-            for index, (_position, row) in enumerate(items):
-                text_width, _, bitmap = cachedBitmapText(row["distance"], font)
-                draw.bitmap((width - text_width, base_offset + (index * loop_row_gap)), bitmap, fill="yellow")
-
-    for vhotspot, xy in list(virtualViewport._hotspots):
-        virtualViewport.remove_hotspot(vhotspot, xy)
-
-    stationRenderCount = 0
-    pauseCount = 0
-    loopPixelsUp = 0
-    loopPauseCount = 0
-    loopHasElevated = 0
-
-    virtualViewport.add_hotspot(rowOneA, (0, 0))
-    virtualViewport.add_hotspot(rowOneB, (width - metric_width, 0))
-    virtualViewport.add_hotspot(rowTwoA, (0, 12))
-    virtualViewport.add_hotspot(rowTwoB, (label_width, 12))
-
-    if len(remaining_rows) > 0:
-        rowLoopA = snapshot(
-            width - metric_width,
-            loop_block_height,
-            render_plane_loop_summary,
-            interval=loop_frame_interval,
-        )
-        rowLoopB = snapshot(
-            metric_width,
-            loop_block_height,
-            render_plane_loop_distance,
-            interval=loop_frame_interval,
-        )
-        virtualViewport.add_hotspot(rowLoopA, (0, 24))
-        virtualViewport.add_hotspot(rowLoopB, (width - metric_width, 24))
-
-    rowTime = snapshot(width, 14, renderTime, interval=0.1)
-    virtualViewport.add_hotspot(rowTime, (0, 50))
-
-    return virtualViewport
 
 def platform_filter(departureData, platformNumber, station):
     platformDepartures = []
@@ -813,7 +637,6 @@ try:
     loop_count = 0
 
     regulator = framerate_regulator(config['targetFPS'])
-    adsb_client = create_adsb_client(config["adsb"])
 
     if (config['debug'] > 1):
         # render screen and sleep for specified seconds
@@ -833,7 +656,6 @@ try:
         if config['headless'] is not True:
             time.sleep(5)
 
-    appStartedAt = time.time()
     timeAtStart = time.time() - config["refreshTime"]
     timeNow = time.time()
     timeFPS = time.time()
@@ -861,40 +683,24 @@ try:
                         if config['dualScreen']:
                             virtual1 = drawDebugScreen(device1, width=widgetWidth, height=widgetHeight, showTime=True, screen="2")
                     else:
-                        if is_plane_mode(config, appStartedAt, time.time()):
-                            planeRows = loadPlaneData(adsb_client, config["adsb"])
-                            virtual = drawPlaneSignage(
-                                device,
-                                width=widgetWidth,
-                                height=widgetHeight,
-                                rows=planeRows,
-                            )
+                        data = loadData(config["api"], config["journey"], config)
+                        if data[0] is False:
+                            virtual = drawBlankSignage(
+                                device, width=widgetWidth, height=widgetHeight, departureStation=data[2])
                             if config['dualScreen']:
-                                virtual1 = drawPlaneSignage(
-                                    device1,
-                                    width=widgetWidth,
-                                    height=widgetHeight,
-                                    rows=planeRows,
-                                )
+                                virtual1 = drawBlankSignage(
+                                    device1, width=widgetWidth, height=widgetHeight, departureStation=data[2])
                         else:
-                            data = loadData(config["api"], config["journey"], config)
-                            if data[0] is False:
-                                virtual = drawBlankSignage(
-                                    device, width=widgetWidth, height=widgetHeight, departureStation=data[2])
-                                if config['dualScreen']:
-                                    virtual1 = drawBlankSignage(
-                                        device1, width=widgetWidth, height=widgetHeight, departureStation=data[2])
-                            else:
-                                departureData = data[0]
-                                nextStations = data[1]
-                                station = data[2]
-                                screenData = platform_filter(departureData, config["journey"]["screen1Platform"], station)
-                                virtual = drawSignage(device, width=widgetWidth, height=widgetHeight, data=screenData)
-                                # virtual = drawDebugScreen(device, width=widgetWidth, height=widgetHeight, showTime=True)
+                            departureData = data[0]
+                            nextStations = data[1]
+                            station = data[2]
+                            screenData = platform_filter(departureData, config["journey"]["screen1Platform"], station)
+                            virtual = drawSignage(device, width=widgetWidth, height=widgetHeight, data=screenData)
+                            # virtual = drawDebugScreen(device, width=widgetWidth, height=widgetHeight, showTime=True)
 
-                                if config['dualScreen']:
-                                    screen1Data = platform_filter(departureData, config["journey"]["screen2Platform"], station)
-                                    virtual1 = drawSignage(device1, width=widgetWidth, height=widgetHeight, data=screen1Data)
+                            if config['dualScreen']:
+                                screen1Data = platform_filter(departureData, config["journey"]["screen2Platform"], station)
+                                virtual1 = drawSignage(device1, width=widgetWidth, height=widgetHeight, data=screen1Data)
 
                     timeAtStart = time.time()
 
