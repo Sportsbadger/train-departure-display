@@ -1,29 +1,6 @@
 import os
 import re
 
-
-def parse_bool(value: str | None, default: bool = False) -> bool:
-    if value is None:
-        return default
-    return value.upper() == "TRUE"
-
-
-def parse_float(value: str | None, default: float | None = None) -> float | None:
-    if value is None or value == "":
-        return default
-    try:
-        return float(value)
-    except ValueError:
-        return default
-
-
-def parse_int(value: str | None, default: int) -> int:
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return default
-
-
 # validate platform number
 def parsePlatformData(platform):
     if platform is None:
@@ -36,8 +13,7 @@ def parsePlatformData(platform):
 def loadConfig():
     data = {
         "journey": {},
-        "api": {},
-        "adsb": {},
+        "api": {}
     }
 
     data["targetFPS"] = int(os.getenv("targetFPS") or 70)
@@ -94,29 +70,5 @@ def loadConfig():
     data["loopDepartureInterval"] = int(os.getenv("loopDepartureInterval") or 10)
     if data["loopDepartureInterval"] < 1:
         data["loopDepartureInterval"] = 1
-
-    data["modeSwitchInterval"] = parse_int(os.getenv("modeSwitchInterval"), 300)
-    if data["modeSwitchInterval"] < 60:
-        data["modeSwitchInterval"] = 60
-
-    data["adsb"]["enabled"] = parse_bool(os.getenv("adsbEnabled"), False)
-    data["adsb"]["host"] = os.getenv("adsbHost") or "127.0.0.1"
-    data["adsb"]["port"] = parse_int(os.getenv("adsbPort"), 30005)
-    data["adsb"]["receiverLatitude"] = parse_float(os.getenv("adsbReceiverLatitude"))
-    data["adsb"]["receiverLongitude"] = parse_float(os.getenv("adsbReceiverLongitude"))
-    data["adsb"]["readTimeout"] = parse_float(os.getenv("adsbReadTimeout"), 2.0)
-    data["adsb"]["maxAircraftAge"] = parse_int(os.getenv("adsbMaxAircraftAge"), 300)
-    data["adsb"]["maxPlanes"] = parse_int(os.getenv("adsbMaxPlanes"), 6)
-    if data["adsb"]["maxPlanes"] < 1:
-        data["adsb"]["maxPlanes"] = 1
-
-    if data["adsb"]["enabled"] and (
-        data["adsb"]["receiverLatitude"] is None
-        or data["adsb"]["receiverLongitude"] is None
-    ):
-        raise ValueError(
-            "Please configure adsbReceiverLatitude and adsbReceiverLongitude "
-            "when adsbEnabled=True"
-        )
 
     return data
