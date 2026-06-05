@@ -7,6 +7,13 @@ from datetime import datetime
 from PIL import ImageFont, Image, ImageDraw
 
 from trains import loadDeparturesForStation
+from adsb import (
+    ReceiverPosition,
+    format_aircraft_primary,
+    format_aircraft_secondary,
+    prepare_display_aircraft,
+)
+from adsb_source import ADSBDataSource, build_adsb_json_url
 from config import loadConfig
 from open import isRun
 from departure_loop import (
@@ -126,6 +133,8 @@ pauseCount = 0
 loopPixelsUp = 0
 loopPauseCount = 0
 loopHasElevated = 0
+planeLoopIndex = 0
+planeLoopLastUpdate = 0.0
 
 
 def renderStations(stations):
@@ -382,6 +391,94 @@ def drawBlankSignage(device, width, height, departureStation):
     return virtualViewport
 
 
+
+def renderStaticText(text, text_font=None, x_offset=0):
+    def drawText(draw, *_):
+        active_font = text_font or font
+        _, _, bitmap = cachedBitmapText(text, active_font)
+        draw.bitmap((int(x_offset), 0), bitmap, fill="yellow")
+
+    return drawText
+
+
+def truncateDisplayText(text, text_font, max_width):
+    if int(text_font.getlength(text)) <= max_width:
+        return text
+    shortened = text
+    while shortened and int(text_font.getlength(shortened + "...")) > max_width:
+        shortened = shortened[:-1]
+    return shortened + "..." if shortened else "..."
+
+
+def drawPlaneSignage(device, width, height, data):
+    global planeLoopIndex, planeLoopLastUpdate
+
+    display_aircraft, source_error = data
+    virtualViewport = viewport(device, width=width, height=height)
+
+    title = "Nearby aircraft"
+    titleSize = int(fontBold.getlength(title))
+    rowTitle = snapshot(width, 10, renderStaticText(title, fontBold, (width - titleSize) / 2), interval=10)
+    rowTime = snapshot(width, 14, renderTime, interval=0.1)
+
+    if len(display_aircraft) == 0:
+        status = "ADSB offline" if source_error else "No aircraft"
+        detail = truncateDisplayText(source_error or "Waiting for positions", font, width)
+        statusSize = int(fontBold.getlength(status))
+        rowStatus = snapshot(width, 10, renderStaticText(status, fontBold, (width - statusSize) / 2), interval=10)
+        detailSize = int(font.getlength(detail))
+        rowDetail = snapshot(width, 10, renderStaticText(detail, font, max(0, (width - detailSize) / 2)), interval=10)
+        virtualViewport.add_hotspot(rowTitle, (0, 0))
+        virtualViewport.add_hotspot(rowStatus, (0, 18))
+        virtualViewport.add_hotspot(rowDetail, (0, 32))
+        virtualViewport.add_hotspot(rowTime, (0, 50))
+        return virtualViewport
+
+    if planeLoopIndex >= len(display_aircraft):
+        planeLoopIndex = 0
+    if planeLoopLastUpdate == 0.0:
+        planeLoopLastUpdate = time.monotonic()
+
+    def current_aircraft():
+        global planeLoopIndex, planeLoopLastUpdate
+
+        now = time.monotonic()
+        interval_s = float(config["adsb"]["aircraftInterval"])
+        if now - planeLoopLastUpdate >= interval_s:
+            planeLoopIndex = (planeLoopIndex + 1) % len(display_aircraft)
+            planeLoopLastUpdate = now
+        return display_aircraft[planeLoopIndex], planeLoopIndex + 1
+
+    def renderPrimary(draw, width, *_):
+        item, _position = current_aircraft()
+        text = truncateDisplayText(format_aircraft_primary(item), fontBold, width)
+        _, _, bitmap = cachedBitmapText(text, fontBold)
+        draw.bitmap((0, 0), bitmap, fill="yellow")
+
+    def renderSecondary(draw, width, *_):
+        item, _position = current_aircraft()
+        text = truncateDisplayText(format_aircraft_secondary(item) or item.aircraft.hex_ident, font, width)
+        _, _, bitmap = cachedBitmapText(text, font)
+        draw.bitmap((0, 0), bitmap, fill="yellow")
+
+    def renderCount(draw, width, *_):
+        _item, position = current_aircraft()
+        text = f"{position} of {len(display_aircraft)} nearest"
+        text_width, _, bitmap = cachedBitmapText(text, font)
+        draw.bitmap((width - text_width, 0), bitmap, fill="yellow")
+
+    rowPrimary = snapshot(width, 10, renderPrimary, interval=0.1)
+    rowSecondary = snapshot(width, 10, renderSecondary, interval=0.1)
+    rowCount = snapshot(width, 10, renderCount, interval=0.5)
+
+    virtualViewport.add_hotspot(rowTitle, (0, 0))
+    virtualViewport.add_hotspot(rowPrimary, (0, 14))
+    virtualViewport.add_hotspot(rowSecondary, (0, 26))
+    virtualViewport.add_hotspot(rowCount, (0, 38))
+    virtualViewport.add_hotspot(rowTime, (0, 50))
+    return virtualViewport
+
+
 def platform_filter(departureData, platformNumber, station):
     platformDepartures = []
     for sub in departureData:
@@ -586,6 +683,40 @@ def drawSignage(device, width, height, data):
 
     return virtualViewport
 
+
+def buildPlaneData(adsb_source, receiver_position):
+    if adsb_source is None or receiver_position is None:
+        return [], "ADS-B source is not configured"
+
+    aircraft, source_error = adsb_source.snapshot()
+    adsb_config = config["adsb"]
+    display_aircraft = prepare_display_aircraft(
+        aircraft,
+        receiver_position,
+        max_age_s=float(adsb_config["maxAge"]),
+        max_aircraft=int(adsb_config["maxAircraft"]),
+        max_distance_nm=adsb_config["maxDistanceNm"],
+        min_altitude_ft=adsb_config["minAltitude"],
+        max_altitude_ft=adsb_config["maxAltitude"],
+    )
+    return display_aircraft, source_error
+
+
+def drawTrainScreen(device, width, height, data, platform):
+    if data[0] is False:
+        return drawBlankSignage(
+            device,
+            width=width,
+            height=height,
+            departureStation=data[2],
+        )
+
+    departureData = data[0]
+    station = data[2]
+    screenData = platform_filter(departureData, platform, station)
+    return drawSignage(device, width=width, height=height, data=screenData)
+
+
 def getIp():
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     s.settimeout(0)
@@ -638,6 +769,24 @@ try:
 
     regulator = framerate_regulator(config['targetFPS'])
 
+    adsb_source = None
+    adsb_receiver = None
+    if "plane" in config["displayModes"]:
+        if config["adsb"]["sourceType"] != "readsb-json":
+            raise ValueError("Only adsbSourceType=readsb-json is currently supported")
+        if config["adsb"]["receiverLat"] is None or config["adsb"]["receiverLon"] is None:
+            raise ValueError("adsbReceiverLat and adsbReceiverLon must be set for plane mode")
+        adsb_source = ADSBDataSource(
+            url=build_adsb_json_url(config),
+            refresh_s=float(config["adsb"]["refreshTime"]),
+            connect_timeout_s=float(config["adsb"]["connectTimeout"]),
+            read_timeout_s=float(config["adsb"]["readTimeout"]),
+        )
+        adsb_receiver = ReceiverPosition(
+            latitude=float(config["adsb"]["receiverLat"]),
+            longitude=float(config["adsb"]["receiverLon"]),
+        )
+
     if (config['debug'] > 1):
         # render screen and sleep for specified seconds
         virtual = drawDebugScreen(device, width=widgetWidth, height=widgetHeight)
@@ -664,50 +813,136 @@ try:
     if config['hoursPattern'].match(config['screenBlankHours']):
         blankHours = [int(x) for x in config['screenBlankHours'].split('-')]
 
-    while True:
-        with regulator:
-            if len(blankHours) == 2 and isRun(blankHours[0], blankHours[1]):
-                device.clear()
-                if config['dualScreen']:
-                    device1.clear()
-                time.sleep(10)
-            else:
-                if timeNow - timeFPS >= config['fpsTime']:
-                    timeFPS = time.time()
-                    print('Effective FPS: ' + str(round(regulator.effective_FPS(), 2)))
-                if timeNow - timeAtStart >= config["refreshTime"]:
-                    # check if debug mode is enabled 
-                    if config["debug"] == True:
-                        print(config["debug"])
-                        virtual = drawDebugScreen(device, width=widgetWidth, height=widgetHeight, showTime=True)
-                        if config['dualScreen']:
-                            virtual1 = drawDebugScreen(device1, width=widgetWidth, height=widgetHeight, showTime=True, screen="2")
-                    else:
-                        data = loadData(config["api"], config["journey"], config)
-                        if data[0] is False:
-                            virtual = drawBlankSignage(
-                                device, width=widgetWidth, height=widgetHeight, departureStation=data[2])
+    if config["displayModes"] == ["train"]:
+        while True:
+            with regulator:
+                if len(blankHours) == 2 and isRun(blankHours[0], blankHours[1]):
+                    device.clear()
+                    if config['dualScreen']:
+                        device1.clear()
+                    time.sleep(10)
+                else:
+                    if timeNow - timeFPS >= config['fpsTime']:
+                        timeFPS = time.time()
+                        print('Effective FPS: ' + str(round(regulator.effective_FPS(), 2)))
+                    if timeNow - timeAtStart >= config["refreshTime"]:
+                        # check if debug mode is enabled
+                        if config["debug"] == True:
+                            print(config["debug"])
+                            virtual = drawDebugScreen(device, width=widgetWidth, height=widgetHeight, showTime=True)
                             if config['dualScreen']:
-                                virtual1 = drawBlankSignage(
-                                    device1, width=widgetWidth, height=widgetHeight, departureStation=data[2])
+                                virtual1 = drawDebugScreen(device1, width=widgetWidth, height=widgetHeight, showTime=True, screen="2")
                         else:
-                            departureData = data[0]
-                            nextStations = data[1]
-                            station = data[2]
-                            screenData = platform_filter(departureData, config["journey"]["screen1Platform"], station)
-                            virtual = drawSignage(device, width=widgetWidth, height=widgetHeight, data=screenData)
-                            # virtual = drawDebugScreen(device, width=widgetWidth, height=widgetHeight, showTime=True)
+                            data = loadData(config["api"], config["journey"], config)
+                            if data[0] is False:
+                                virtual = drawBlankSignage(
+                                    device, width=widgetWidth, height=widgetHeight, departureStation=data[2])
+                                if config['dualScreen']:
+                                    virtual1 = drawBlankSignage(
+                                        device1, width=widgetWidth, height=widgetHeight, departureStation=data[2])
+                            else:
+                                departureData = data[0]
+                                station = data[2]
+                                screenData = platform_filter(departureData, config["journey"]["screen1Platform"], station)
+                                virtual = drawSignage(device, width=widgetWidth, height=widgetHeight, data=screenData)
 
+                                if config['dualScreen']:
+                                    screen1Data = platform_filter(departureData, config["journey"]["screen2Platform"], station)
+                                    virtual1 = drawSignage(device1, width=widgetWidth, height=widgetHeight, data=screen1Data)
+
+                        timeAtStart = time.time()
+
+                    timeNow = time.time()
+                    virtual.refresh()
+                    if config['dualScreen']:
+                        virtual1.refresh()
+    else:
+        active_mode_index = 0
+        active_mode = config["displayModes"][active_mode_index]
+        modeLastSwitch = time.monotonic()
+        forceRender = True
+        trainData = None
+
+        while True:
+            with regulator:
+                if len(blankHours) == 2 and isRun(blankHours[0], blankHours[1]):
+                    device.clear()
+                    if config['dualScreen']:
+                        device1.clear()
+                    time.sleep(10)
+                else:
+                    if timeNow - timeFPS >= config['fpsTime']:
+                        timeFPS = time.time()
+                        print('Effective FPS: ' + str(round(regulator.effective_FPS(), 2)))
+
+                    if config["debug"] == True:
+                        if timeNow - timeAtStart >= config["refreshTime"]:
+                            print(config["debug"])
+                            virtual = drawDebugScreen(device, width=widgetWidth, height=widgetHeight, showTime=True)
                             if config['dualScreen']:
-                                screen1Data = platform_filter(departureData, config["journey"]["screen2Platform"], station)
-                                virtual1 = drawSignage(device1, width=widgetWidth, height=widgetHeight, data=screen1Data)
+                                virtual1 = drawDebugScreen(
+                                    device1,
+                                    width=widgetWidth,
+                                    height=widgetHeight,
+                                    showTime=True,
+                                    screen="2",
+                                )
+                            timeAtStart = time.time()
+                    else:
+                        monotonicNow = time.monotonic()
+                        if len(config["displayModes"]) > 1:
+                            if monotonicNow - modeLastSwitch >= config["modeSwitchInterval"]:
+                                active_mode_index = (active_mode_index + 1) % len(config["displayModes"])
+                                active_mode = config["displayModes"][active_mode_index]
+                                modeLastSwitch = monotonicNow
+                                forceRender = True
 
-                    timeAtStart = time.time()
+                        if adsb_source is not None:
+                            if adsb_source.poll_if_due(monotonicNow) and active_mode == "plane":
+                                forceRender = True
 
-                timeNow = time.time()
-                virtual.refresh()
-                if config['dualScreen']:
-                    virtual1.refresh()
+                        if timeNow - timeAtStart >= config["refreshTime"]:
+                            trainData = loadData(config["api"], config["journey"], config)
+                            timeAtStart = time.time()
+                            if active_mode == "train":
+                                forceRender = True
+
+                        if forceRender:
+                            if active_mode == "plane":
+                                planeData = buildPlaneData(adsb_source, adsb_receiver)
+                                virtual = drawPlaneSignage(device, width=widgetWidth, height=widgetHeight, data=planeData)
+                                if config['dualScreen']:
+                                    virtual1 = drawPlaneSignage(
+                                        device1,
+                                        width=widgetWidth,
+                                        height=widgetHeight,
+                                        data=planeData,
+                                    )
+                            else:
+                                if trainData is None:
+                                    trainData = loadData(config["api"], config["journey"], config)
+                                    timeAtStart = time.time()
+                                virtual = drawTrainScreen(
+                                    device,
+                                    width=widgetWidth,
+                                    height=widgetHeight,
+                                    data=trainData,
+                                    platform=config["journey"]["screen1Platform"],
+                                )
+                                if config['dualScreen']:
+                                    virtual1 = drawTrainScreen(
+                                        device1,
+                                        width=widgetWidth,
+                                        height=widgetHeight,
+                                        data=trainData,
+                                        platform=config["journey"]["screen2Platform"],
+                                    )
+                            forceRender = False
+
+                    timeNow = time.time()
+                    virtual.refresh()
+                    if config['dualScreen']:
+                        virtual1.refresh()
 
 except KeyboardInterrupt:
     pass
