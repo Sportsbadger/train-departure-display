@@ -26,16 +26,6 @@ def parse_float_env(
     return value
 
 
-def parse_display_modes(value: str | None) -> list[str]:
-    """Parse enabled display modes from a comma-separated environment value."""
-    modes: list[str] = []
-    for raw_mode in (value or "train").split(','):
-        mode = raw_mode.strip().lower()
-        if mode in ("train", "plane") and mode not in modes:
-            modes.append(mode)
-    return modes or ["train"]
-
-
 # validate platform number
 def parsePlatformData(platform):
     if platform is None:
@@ -107,35 +97,26 @@ def loadConfig() -> dict[str, Any]:
     if data["loopDepartureInterval"] < 1:
         data["loopDepartureInterval"] = 1
 
-    data["displayModes"] = parse_display_modes(os.getenv("displayModes"))
-    data["modeSwitchInterval"] = parse_int_env("modeSwitchInterval", 300, 1)
     data["adsb"] = {
         "sourceType": os.getenv("adsbSourceType") or "readsb-json",
         "jsonUrl": os.getenv("adsbJsonUrl") or "",
         "host": os.getenv("adsbHost") or "",
-        "jsonPort": parse_int_env("adsbJsonPort", 80, 1),
+        "jsonPort": parse_int_env("adsbJsonPort", 80, minimum=1),
         "jsonPath": os.getenv("adsbJsonPath") or "/tar1090/data/aircraft.json",
-        "beastHost": os.getenv("adsbBeastHost") or "",
-        "beastPort": parse_int_env("adsbBeastPort", 30005, 1),
         "receiverLat": parse_float_env("adsbReceiverLat"),
         "receiverLon": parse_float_env("adsbReceiverLon"),
-        "refreshTime": parse_float_env("adsbRefreshTime", 5.0, 1.0),
-        "aircraftInterval": parse_float_env("adsbAircraftInterval", 5.0, 1.0),
-        "maxAircraft": parse_int_env("adsbMaxAircraft", 8, 1),
-        "maxAge": parse_float_env("adsbMaxAge", 30.0, 1.0),
-        "connectTimeout": parse_float_env("adsbConnectTimeout", 1.0, 0.1),
-        "readTimeout": parse_float_env("adsbReadTimeout", 1.0, 0.1),
-        "maxDistanceNm": parse_float_env("adsbMaxDistanceNm"),
-        "minAltitude": (
-            parse_int_env("adsbMinAltitude", 0)
-            if os.getenv("adsbMinAltitude")
-            else None
-        ),
-        "maxAltitude": (
-            parse_int_env("adsbMaxAltitude", 0)
-            if os.getenv("adsbMaxAltitude")
-            else None
-        ),
+        "refreshTime": parse_int_env("adsbRefreshTime", 5, minimum=1),
+        "maxAircraft": parse_int_env("adsbMaxAircraft", 8, minimum=1),
+        "maxAge": parse_int_env("adsbMaxAge", 30, minimum=1),
+        "maxDistanceNm": parse_float_env("adsbMaxDistanceNm", minimum=0.0),
+        "minAltitude": parse_int_env("adsbMinAltitude", 0, minimum=0)
+        if os.getenv("adsbMinAltitude") not in (None, "") else None,
+        "maxAltitude": parse_int_env("adsbMaxAltitude", 60000, minimum=0)
+        if os.getenv("adsbMaxAltitude") not in (None, "") else None,
+        "connectTimeout": parse_float_env("adsbConnectTimeout", 1.0, minimum=0.1),
+        "readTimeout": parse_float_env("adsbReadTimeout", 1.0, minimum=0.1),
+        "beastHost": os.getenv("adsbBeastHost") or "",
+        "beastPort": parse_int_env("adsbBeastPort", 30005, minimum=1),
     }
 
     return data
