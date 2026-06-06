@@ -55,6 +55,7 @@ def loadConfig():
         "api": {},
         "transport": {},
         "adsb": {},
+        "planeAlert": {},
     }
 
     data["targetFPS"] = int(os.getenv("targetFPS") or 70)
@@ -137,6 +138,34 @@ def loadConfig():
     )
     data["adsb"]["maxDistanceNm"] = _env_optional_float("adsbMaxDistanceNm")
     data["adsb"]["minAltitudeFt"] = _env_optional_int("adsbMinAltitudeFt")
+
+    data["planeAlert"]["enabled"] = _env_bool("planeAlertEnabled", False)
+    data["planeAlert"]["sourceUrl"] = (
+        os.getenv("planeAlertSourceUrl")
+        or "http://192.168.1.74/planefence/pa_query.php?timestamp=.*&type=json"
+    )
+    data["planeAlert"]["userAgent"] = (
+        os.getenv("planeAlertUserAgent")
+        or "Mozilla/5.0 TrainDepartureDisplay/Plane-Alert"
+    )
+    data["planeAlert"]["fetchTimeout"] = _env_float(
+        "planeAlertFetchTimeout",
+        15.0,
+        minimum=0.1,
+    )
+    data["planeAlert"]["refreshTime"] = _env_int(
+        "planeAlertRefreshTime",
+        30,
+        minimum=1,
+    )
+    data["planeAlert"]["displayCount"] = _env_int(
+        "planeAlertDisplayCount",
+        5,
+        minimum=1,
+    )
+    data["planeAlert"]["maxAgeHours"] = _env_optional_float(
+        "planeAlertMaxAgeHours",
+    )
 
     data["transport"]["modes"] = os.getenv("transportModes") or "train"
     data["transport"]["modeSwitchInterval"] = _env_int(

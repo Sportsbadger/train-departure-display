@@ -15,6 +15,9 @@ def test_adsb_config_defaults_to_disabled_train_only(monkeypatch):
         "adsbHomeLat",
         "adsbHomeLon",
         "adsbUserAgent",
+        "planeAlertEnabled",
+        "planeAlertSourceUrl",
+        "planeAlertFetchTimeout",
     ]:
         monkeypatch.delenv(key, raising=False)
 
@@ -26,6 +29,9 @@ def test_adsb_config_defaults_to_disabled_train_only(monkeypatch):
     assert config["adsb"]["homeLat"] is None
     assert config["adsb"]["homeLon"] is None
     assert config["adsb"]["userAgent"].startswith("Mozilla/5.0")
+    assert config["planeAlert"]["enabled"] is False
+    assert "planefence/pa_query.php" in config["planeAlert"]["sourceUrl"]
+    assert config["planeAlert"]["fetchTimeout"] == 15.0
 
 
 def test_adsb_config_parses_enabled_values(monkeypatch):
@@ -37,6 +43,10 @@ def test_adsb_config_parses_enabled_values(monkeypatch):
     monkeypatch.setenv("adsbFetchTimeout", "0")
     monkeypatch.setenv("adsbUserAgent", "CustomAgent/1.0")
     monkeypatch.setenv("adsbDisplayCount", "0")
+    monkeypatch.setenv("planeAlertEnabled", "True")
+    monkeypatch.setenv("planeAlertFetchTimeout", "0")
+    monkeypatch.setenv("planeAlertDisplayCount", "0")
+    monkeypatch.setenv("planeAlertMaxAgeHours", "12")
 
     config = loadConfig()
 
@@ -48,3 +58,7 @@ def test_adsb_config_parses_enabled_values(monkeypatch):
     assert config["adsb"]["fetchTimeout"] == 0.1
     assert config["adsb"]["userAgent"] == "CustomAgent/1.0"
     assert config["adsb"]["displayCount"] == 1
+    assert config["planeAlert"]["enabled"] is True
+    assert config["planeAlert"]["fetchTimeout"] == 0.1
+    assert config["planeAlert"]["displayCount"] == 1
+    assert config["planeAlert"]["maxAgeHours"] == 12.0

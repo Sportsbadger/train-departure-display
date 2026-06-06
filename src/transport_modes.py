@@ -12,20 +12,32 @@ class ModeState:
     last_switch: float
 
 
-def parse_modes(raw_modes: str, adsb_enabled: bool) -> list[str]:
+def parse_modes(
+    raw_modes: str,
+    adsb_enabled: bool,
+    plane_alert_enabled: bool = False,
+) -> list[str]:
     """Parse configured transport modes.
 
     Args:
         raw_modes: Comma-separated transport mode names.
         adsb_enabled: Whether ADS-B mode is allowed.
+        plane_alert_enabled: Whether Plane-Alert mode is allowed.
 
     Returns:
         Ordered, de-duplicated mode names.
     """
-    allowed = {"train", "adsb"} if adsb_enabled else {"train"}
+    allowed = {"train"}
+    if adsb_enabled:
+        allowed.add("adsb")
+    if plane_alert_enabled:
+        allowed.add("plane-alert")
+        allowed.add("planealert")
     modes: list[str] = []
     for raw_mode in raw_modes.split(","):
         mode = raw_mode.strip().lower()
+        if mode == "planealert":
+            mode = "plane-alert"
         if not mode or mode not in allowed or mode in modes:
             continue
         modes.append(mode)

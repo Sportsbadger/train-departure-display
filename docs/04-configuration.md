@@ -55,6 +55,25 @@ ADS-B support is disabled by default. When enabled, the display can alternate be
 
 The ADS-B board skips aircraft without positions, because nearest-aircraft sorting requires latitude and longitude. The lower ADS-B rows rotate using `loopDepartureInterval`. Network failures and malformed ADS-B JSON are handled separately from train loading so the train board can continue to run. The default `adsbUserAgent` avoids reverse proxy bot blocks that reject the default Python requests User-Agent.
 
+## Plane-Alert mode (optional)
+
+Plane-Alert support is disabled by default. When enabled, the display can alternate to a docker-planefence Plane-Alert board using the `pa_query.php` JSON API exposed by the Plane-Alert web UI. Use the exact `pa_query.php` path from your Plane-Alert installation; for example, if PlaneFence is served from `/planefence`, use `/planefence/pa_query.php` rather than adding `/plane-alert`.
+
+| Key | Example Value
+|-----|----------
+| `planeAlertEnabled` | `True` (enables Plane-Alert mode as an available transport mode)
+| `transportModes` | `train,adsb,plane-alert` (ordered comma-separated modes to display; `planealert` is also accepted; defaults to `train`)
+| `modeSwitchInterval` | `300` (seconds before switching to the next configured mode)
+| `transportFallbackMode` | `train` (fallback shown if Plane-Alert fetch/parsing fails; set to anything else to show a Plane-Alert unavailable screen instead)
+| `planeAlertSourceUrl` | `http://192.168.1.74/planefence/pa_query.php?timestamp=.*&type=json` (Plane-Alert JSON endpoint; include at least one query parameter because docker-planefence requires it)
+| `planeAlertFetchTimeout` | `15` (HTTP timeout in seconds; increase this if the browser works but the app times out)
+| `planeAlertUserAgent` | `Mozilla/5.0 TrainDepartureDisplay/Plane-Alert` (HTTP User-Agent sent to the Plane-Alert web proxy)
+| `planeAlertRefreshTime` | `30` (seconds between Plane-Alert UI snapshot refreshes; JSON is fetched once when the Plane-Alert display cycle starts)
+| `planeAlertDisplayCount` | `5` (total Plane-Alert aircraft to show: the latest highlighted alert plus the remaining aircraft in the lower scrolling rows)
+| `planeAlertMaxAgeHours` | `24` (optional maximum alert age in hours; blank means no age cap)
+
+The Plane-Alert board sorts alerts newest first using the `timestamp` field, then displays callsign, tail/hex, equipment, owner/name, first-observed position, and observed time when present. Plane-Alert JSON is fetched once when the Plane-Alert transport display cycle starts, then the cached board scrolls for the rest of that cycle. The example `planeAlertSourceUrl` queries all timestamps; for large Plane-Alert histories, prefer a narrower docker-planefence regex query or increase `planeAlertFetchTimeout`.
+
 If using two screens the following line needs to be added into /boot/config.txt which is achieved by using the 'Define DT overlays' option within the Device configuration screen on balenaCloud: `spi1-3cs`
 
 ![](images/overlays.png)
