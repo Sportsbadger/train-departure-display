@@ -11,6 +11,7 @@ from departure_loop import (  # noqa: E402
     build_loop_state,
     get_looped_departures,
     ordinal,
+    timed_loop_index,
     update_loop_state,
 )
 
@@ -64,3 +65,15 @@ def test_update_loop_state_advances_index():
     loop_state = build_loop_state(departures, loop_count=3, now=0.0)
     update_loop_state(loop_state, now=11.0, interval_s=10.0)
     assert loop_state.index == advance_loop_index(0, len(loop_state.departures))
+
+
+def test_timed_loop_index_advances_by_step():
+    assert timed_loop_index(length=8, now=0.0, interval_s=10.0) == 0
+    assert timed_loop_index(length=8, now=9.9, interval_s=10.0) == 0
+    assert timed_loop_index(length=8, now=10.0, interval_s=10.0) == 2
+    assert timed_loop_index(length=8, now=20.0, interval_s=10.0) == 4
+    assert timed_loop_index(length=8, now=40.0, interval_s=10.0) == 0
+
+
+def test_timed_loop_index_handles_empty_list():
+    assert timed_loop_index(length=0, now=10.0, interval_s=10.0) == 0

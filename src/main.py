@@ -23,6 +23,7 @@ from departure_loop import (
     build_loop_state,
     get_looped_departures,
     ordinal,
+    timed_loop_index,
 )
 from transport_modes import build_mode_state, parse_modes, update_mode_state
 
@@ -704,40 +705,18 @@ def drawAdsbSignage(device, width, height, aircraft):
         interval=0.02,
     )
 
-    loop_state = build_loop_state(
-        aircraft,
-        config["adsb"]["displayCount"],
-        time.monotonic(),
-    )
+    loop_departures = aircraft[1 : config["adsb"]["displayCount"]]
     loop_row_gap = 12
     loop_block_height = loop_row_gap * 2
     loop_frame_interval = 0.02
 
     def get_adsb_loop_render_state():
-        global adsbLoopPixelsUp, adsbLoopPauseCount, adsbLoopHasElevated
-
-        current = get_looped_departures(loop_state.departures, loop_state.index)
-        next_index = advance_loop_index(loop_state.index, len(loop_state.departures))
-        upcoming = get_looped_departures(loop_state.departures, next_index)
-
-        interval_s = float(config["loopDepartureInterval"])
-        total_frames = max(loop_block_height, int(interval_s / loop_frame_interval))
-        pause_frames = max(0, total_frames - loop_block_height)
-
-        if adsbLoopHasElevated:
-            adsbLoopPixelsUp += 1
-            if adsbLoopPixelsUp >= loop_block_height:
-                loop_state.index = next_index
-                adsbLoopPixelsUp = 0
-                adsbLoopHasElevated = 0
-                adsbLoopPauseCount = 0
-        else:
-            adsbLoopPauseCount += 1
-            if adsbLoopPauseCount >= pause_frames:
-                adsbLoopHasElevated = 1
-                adsbLoopPauseCount = 0
-
-        return current, upcoming, adsbLoopPixelsUp
+        start_index = timed_loop_index(
+            len(loop_departures),
+            time.monotonic(),
+            float(config["loopDepartureInterval"]),
+        )
+        return get_looped_departures(loop_departures, start_index)
 
     def draw_loop_aircraft(draw, y_offset, plane, position, *_):
         summary = (
@@ -758,17 +737,13 @@ def drawAdsbSignage(device, width, height, aircraft):
 
     def render_adsb_loop_block(renderer):
         def drawText(draw, width, *_):
-            current, upcoming, pixel_offset = get_adsb_loop_render_state()
-            current_offset = -pixel_offset
-            next_offset = loop_block_height + current_offset
+            current = get_adsb_loop_render_state()
             for idx, (position, plane) in enumerate(current):
-                renderer(draw, current_offset + (idx * loop_row_gap), plane, position, width)
-            for idx, (position, plane) in enumerate(upcoming):
-                renderer(draw, next_offset + (idx * loop_row_gap), plane, position, width)
+                renderer(draw, idx * loop_row_gap, plane, position, width)
 
         return drawText
 
-    if len(loop_state.departures) > 0:
+    if len(loop_departures) > 0:
         rowThreeA = snapshot(
             width - bearing_width - altitude_width,
             loop_block_height,
@@ -805,7 +780,7 @@ def drawAdsbSignage(device, width, height, aircraft):
     virtualViewport.add_hotspot(rowTwoA, (0, 12))
     virtualViewport.add_hotspot(rowTwoB, (label_width, 12))
 
-    if len(loop_state.departures) > 0:
+    if len(loop_departures) > 0:
         virtualViewport.add_hotspot(rowThreeA, (0, 24))
         virtualViewport.add_hotspot(rowThreeB, (width - bearing_width, 24))
         virtualViewport.add_hotspot(

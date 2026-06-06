@@ -11,10 +11,11 @@ from transport_modes import (  # noqa: E402
 )
 
 
-def test_parse_modes_keeps_train_default_and_requires_adsb_enabled():
+def test_parse_modes_respects_explicit_adsb_only_mode():
     assert parse_modes("adsb", adsb_enabled=False) == ["train"]
-    assert parse_modes("adsb", adsb_enabled=True) == ["train", "adsb"]
+    assert parse_modes("adsb", adsb_enabled=True) == ["adsb"]
     assert parse_modes("train,adsb,train", adsb_enabled=True) == ["train", "adsb"]
+    assert parse_modes("", adsb_enabled=True) == ["train"]
 
 
 def test_update_mode_state_switches_after_interval():

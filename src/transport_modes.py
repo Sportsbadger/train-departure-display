@@ -13,7 +13,7 @@ class ModeState:
 
 
 def parse_modes(raw_modes: str, adsb_enabled: bool) -> list[str]:
-    """Parse configured transport modes while preserving train as default.
+    """Parse configured transport modes.
 
     Args:
         raw_modes: Comma-separated transport mode names.
@@ -30,9 +30,9 @@ def parse_modes(raw_modes: str, adsb_enabled: bool) -> list[str]:
             continue
         modes.append(mode)
 
-    if "train" not in modes:
-        modes.insert(0, "train")
-    return modes
+    if modes:
+        return modes
+    return ["train"]
 
 
 def build_mode_state(modes: Sequence[str], now: float) -> ModeState:

@@ -39,9 +39,9 @@ ADS-B support is disabled by default. When enabled, the display can alternate be
 | Key | Example Value
 |-----|----------
 | `adsbEnabled` | `True` (enables ADS-B mode as an available transport mode)
-| `transportModes` | `train,adsb` (ordered comma-separated modes to display; defaults to `train`)
+| `transportModes` | `train,adsb` (ordered comma-separated modes to display; use `adsb` for ADS-B only; defaults to `train`)
 | `modeSwitchInterval` | `300` (seconds before switching to the next configured mode)
-| `transportFallbackMode` | `train` (fallback shown if ADS-B fetch/parsing fails)
+| `transportFallbackMode` | `train` (fallback shown if ADS-B fetch/parsing fails; set to anything else to show an ADS-B unavailable screen instead)
 | `adsbSourceUrl` | `http://192.168.1.74/readsb/data/aircraft.json` (readsb/tar1090 JSON endpoint)
 | `adsbHomeLat` | `51.501` (receiver/display latitude; required for ADS-B sorting)
 | `adsbHomeLon` | `-0.142` (receiver/display longitude; required for ADS-B sorting)
@@ -53,7 +53,7 @@ ADS-B support is disabled by default. When enabled, the display can alternate be
 | `adsbMaxDistanceNm` | `100` (optional maximum distance in nautical miles; blank means no distance cap)
 | `adsbMinAltitudeFt` | `1000` (optional minimum altitude in feet; blank means no altitude floor)
 
-The ADS-B board skips aircraft without positions, because nearest-aircraft sorting requires latitude and longitude. Network failures and malformed ADS-B JSON are handled separately from train loading so the train board can continue to run. The default `adsbUserAgent` avoids reverse proxy bot blocks that reject the default Python requests User-Agent.
+The ADS-B board skips aircraft without positions, because nearest-aircraft sorting requires latitude and longitude. The lower ADS-B rows rotate using `loopDepartureInterval`. Network failures and malformed ADS-B JSON are handled separately from train loading so the train board can continue to run. The default `adsbUserAgent` avoids reverse proxy bot blocks that reject the default Python requests User-Agent.
 
 If using two screens the following line needs to be added into /boot/config.txt which is achieved by using the 'Define DT overlays' option within the Device configuration screen on balenaCloud: `spi1-3cs`
 
