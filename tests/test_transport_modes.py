@@ -18,6 +18,15 @@ def test_parse_modes_respects_explicit_adsb_only_mode():
     assert parse_modes("", adsb_enabled=True) == ["train"]
 
 
+def test_parse_modes_respects_explicit_plane_alert_mode():
+    assert parse_modes("plane-alert", adsb_enabled=False) == ["train"]
+    assert parse_modes(
+        "train,planealert,adsb",
+        adsb_enabled=True,
+        plane_alert_enabled=True,
+    ) == ["train", "plane-alert", "adsb"]
+
+
 def test_update_mode_state_switches_after_interval():
     modes = ["train", "adsb"]
     state = build_mode_state(modes, now=0.0)

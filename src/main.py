@@ -17,6 +17,13 @@ from adsb import (
     parse_aircraft,
 )
 from config import loadConfig
+from plane_alert import (
+    PlaneAlertDataError,
+    build_plane_alert_detail_text,
+    fetch_plane_alert_json,
+    format_plane_alert_timestamp,
+    parse_plane_alerts,
+)
 from open import isRun
 from departure_loop import (
     advance_loop_index,
@@ -286,6 +293,30 @@ def loadData(apiConfig, journeyConfig, config):
         print(err.__context__)
         return False, False, journeyConfig['outOfHoursName']
 
+
+
+def loadPlaneAlertData(planeAlertConfig: dict[str, Any]):
+    if not planeAlertConfig["enabled"]:
+        return False
+
+    try:
+        payload = fetch_plane_alert_json(
+            planeAlertConfig["sourceUrl"],
+            float(planeAlertConfig["fetchTimeout"]),
+            planeAlertConfig["userAgent"],
+        )
+        return parse_plane_alerts(
+            payload,
+            planeAlertConfig["maxAgeHours"],
+            int(planeAlertConfig["displayCount"]),
+        )
+    except requests.RequestException as err:
+        print("Error: Failed to fetch Plane-Alert data")
+        print(err)
+        return False
+    except PlaneAlertDataError as err:
+        print(f"Error: Failed to parse Plane-Alert data: {err}")
+        return False
 
 
 def loadAdsbData(adsbConfig):
@@ -792,6 +823,188 @@ def drawAdsbSignage(device, width, height, aircraft):
 
     return virtualViewport
 
+
+def renderPlaneAlertSummary(alert: Any, font: ImageFont.FreeTypeFont):
+    def drawText(draw, *_):
+        summary = (
+            f"{alert.display_name}  "
+            f"{alert.tail or alert.hex.upper()}  "
+            f"{format_plane_alert_timestamp(alert.timestamp)}"
+        )
+        _, _, bitmap = cachedBitmapText(summary, font)
+        draw.bitmap((0, 0), bitmap, fill="yellow")
+
+    return drawText
+
+
+def renderPlaneAlertHex(alert: Any):
+    def drawText(draw, width, *_):
+        hex_value = alert.hex.upper() or "------"
+        text_width, _, bitmap = cachedBitmapText(hex_value, font)
+        draw.bitmap((width - text_width, 0), bitmap, fill="yellow")
+
+    return drawText
+
+
+def renderAlertLabel(draw: ImageDraw.ImageDraw, *_: Any) -> None:
+    label = "Alert: "
+    _, _, bitmap = cachedBitmapText(label, font)
+    draw.bitmap((0, 0), bitmap, fill="yellow")
+
+
+def drawPlaneAlertSignage(
+    device: Any,
+    width: int,
+    height: int,
+    alerts: list[Any],
+) -> Any:
+    global stationRenderCount, pauseCount
+
+    if len(alerts) == 0:
+        return drawBlankSignage(
+            device,
+            width=width,
+            height=height,
+            departureStation="No alerts",
+        )
+
+    virtualViewport = viewport(device, width=width, height=height)
+    width = virtualViewport.width
+    firstFont = fontBold if config['firstDepartureBold'] else font
+
+    hex_width = int(font.getlength("AAAAAA"))
+    time_width = int(font.getlength("00:00"))
+    label_width = int(font.getlength("Alert: "))
+
+    rowOneA = snapshot(
+        width - hex_width,
+        10,
+        renderPlaneAlertSummary(alerts[0], firstFont),
+        interval=config["planeAlert"]["refreshTime"],
+    )
+    rowOneB = snapshot(
+        hex_width,
+        10,
+        renderPlaneAlertHex(alerts[0]),
+        interval=config["planeAlert"]["refreshTime"],
+    )
+    rowTwoA = snapshot(
+        label_width,
+        10,
+        renderAlertLabel,
+        interval=config["planeAlert"]["refreshTime"],
+    )
+    rowTwoB = snapshot(
+        width - label_width,
+        10,
+        renderStations(build_plane_alert_detail_text(alerts[0])),
+        interval=0.02,
+    )
+
+    loop_alerts = alerts[1 : config["planeAlert"]["displayCount"]]
+    loop_row_gap = 12
+    loop_block_height = loop_row_gap * 2
+    loop_frame_interval = 0.02
+
+    def get_plane_alert_loop_render_state() -> list[tuple[int, Any]]:
+        start_index = timed_loop_index(
+            len(loop_alerts),
+            time.monotonic(),
+            float(config["loopDepartureInterval"]),
+        )
+        return get_looped_departures(loop_alerts, start_index)
+
+    def draw_loop_alert(
+        draw: ImageDraw.ImageDraw,
+        y_offset: int,
+        alert: Any,
+        position: int,
+        *_: Any,
+    ) -> None:
+        summary = f"{ordinal(position)}  {alert.display_name}  {alert.tail}"
+        _, _, bitmap = cachedBitmapText(summary.strip(), font)
+        draw.bitmap((0, y_offset), bitmap, fill="yellow")
+
+    def draw_loop_equipment(
+        draw: ImageDraw.ImageDraw,
+        y_offset: int,
+        alert: Any,
+        _position: int,
+        width: int,
+    ) -> None:
+        summary = alert.equipment or alert.name
+        text_width, _, bitmap = cachedBitmapText(summary, font)
+        draw.bitmap((width - text_width, y_offset), bitmap, fill="yellow")
+
+    def draw_loop_time(
+        draw: ImageDraw.ImageDraw,
+        y_offset: int,
+        alert: Any,
+        _position: int,
+        *_: Any,
+    ) -> None:
+        _, _, bitmap = cachedBitmapText(
+            format_plane_alert_timestamp(alert.timestamp),
+            font,
+        )
+        draw.bitmap((0, y_offset), bitmap, fill="yellow")
+
+    def render_plane_alert_loop_block(
+        renderer: Callable[[ImageDraw.ImageDraw, int, Any, int, int], None],
+    ) -> Callable[..., None]:
+        def drawText(draw: ImageDraw.ImageDraw, width: int, *_: Any) -> None:
+            current = get_plane_alert_loop_render_state()
+            for idx, (position, alert) in enumerate(current):
+                renderer(draw, idx * loop_row_gap, alert, position, width)
+
+        return drawText
+
+    if len(loop_alerts) > 0:
+        rowThreeA = snapshot(
+            width - hex_width - time_width,
+            loop_block_height,
+            render_plane_alert_loop_block(draw_loop_alert),
+            interval=loop_frame_interval,
+        )
+        rowThreeB = snapshot(
+            hex_width,
+            loop_block_height,
+            render_plane_alert_loop_block(draw_loop_equipment),
+            interval=loop_frame_interval,
+        )
+        rowThreeC = snapshot(
+            time_width,
+            loop_block_height,
+            render_plane_alert_loop_block(draw_loop_time),
+            interval=loop_frame_interval,
+        )
+
+    rowTime = snapshot(width, 14, renderTime, interval=0.1)
+
+    if len(virtualViewport._hotspots) > 0:
+        for vhotspot, xy in virtualViewport._hotspots:
+            virtualViewport.remove_hotspot(vhotspot, xy)
+
+    stationRenderCount = 0
+    pauseCount = 0
+
+    virtualViewport.add_hotspot(rowOneA, (0, 0))
+    virtualViewport.add_hotspot(rowOneB, (width - hex_width, 0))
+    virtualViewport.add_hotspot(rowTwoA, (0, 12))
+    virtualViewport.add_hotspot(rowTwoB, (label_width, 12))
+
+    if len(loop_alerts) > 0:
+        virtualViewport.add_hotspot(rowThreeA, (0, 24))
+        virtualViewport.add_hotspot(rowThreeB, (width - hex_width, 24))
+        virtualViewport.add_hotspot(
+            rowThreeC,
+            (width - hex_width - time_width, 24),
+        )
+
+    virtualViewport.add_hotspot(rowTime, (0, 50))
+
+    return virtualViewport
+
 def getIp():
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     s.settimeout(0)
@@ -846,6 +1059,7 @@ try:
     transportModes = parse_modes(
         config["transport"]["modes"],
         config["adsb"]["enabled"],
+        config["planeAlert"]["enabled"],
     )
     modeState = build_mode_state(transportModes, time.monotonic())
 
@@ -899,6 +1113,8 @@ try:
                 refreshInterval = config["refreshTime"]
                 if modeState.active_mode == "adsb":
                     refreshInterval = config["adsb"]["refreshTime"]
+                elif modeState.active_mode == "plane-alert":
+                    refreshInterval = config["planeAlert"]["refreshTime"]
 
                 if timeNow - timeAtStart >= refreshInterval:
                     # check if debug mode is enabled 
@@ -927,18 +1143,44 @@ try:
                             data = loadData(config["api"], config["journey"], config)
                             if data[0] is False:
                                 virtual = drawBlankSignage(
-                                    device, width=widgetWidth, height=widgetHeight, departureStation=data[2])
+                                    device,
+                                    width=widgetWidth,
+                                    height=widgetHeight,
+                                    departureStation=data[2],
+                                )
                                 if config['dualScreen']:
                                     virtual1 = drawBlankSignage(
-                                        device1, width=widgetWidth, height=widgetHeight, departureStation=data[2])
+                                        device1,
+                                        width=widgetWidth,
+                                        height=widgetHeight,
+                                        departureStation=data[2],
+                                    )
                             else:
                                 departureData = data[0]
                                 station = data[2]
-                                screenData = platform_filter(departureData, config["journey"]["screen1Platform"], station)
-                                virtual = drawSignage(device, width=widgetWidth, height=widgetHeight, data=screenData)
+                                screenData = platform_filter(
+                                    departureData,
+                                    config["journey"]["screen1Platform"],
+                                    station,
+                                )
+                                virtual = drawSignage(
+                                    device,
+                                    width=widgetWidth,
+                                    height=widgetHeight,
+                                    data=screenData,
+                                )
                                 if config['dualScreen']:
-                                    screen1Data = platform_filter(departureData, config["journey"]["screen2Platform"], station)
-                                    virtual1 = drawSignage(device1, width=widgetWidth, height=widgetHeight, data=screen1Data)
+                                    screen1Data = platform_filter(
+                                        departureData,
+                                        config["journey"]["screen2Platform"],
+                                        station,
+                                    )
+                                    virtual1 = drawSignage(
+                                        device1,
+                                        width=widgetWidth,
+                                        height=widgetHeight,
+                                        data=screen1Data,
+                                    )
                         else:
                             virtual = drawBlankSignage(
                                 device,
@@ -952,6 +1194,78 @@ try:
                                     width=widgetWidth,
                                     height=widgetHeight,
                                     departureStation="ADS-B unavailable",
+                                )
+                    elif modeState.active_mode == "plane-alert":
+                        alerts = loadPlaneAlertData(config["planeAlert"])
+                        if alerts is not False:
+                            virtual = drawPlaneAlertSignage(
+                                device,
+                                width=widgetWidth,
+                                height=widgetHeight,
+                                alerts=alerts,
+                            )
+                            if config['dualScreen']:
+                                virtual1 = drawPlaneAlertSignage(
+                                    device1,
+                                    width=widgetWidth,
+                                    height=widgetHeight,
+                                    alerts=alerts,
+                                )
+                        elif config["transport"]["fallbackMode"] == "train":
+                            data = loadData(config["api"], config["journey"], config)
+                            if data[0] is False:
+                                virtual = drawBlankSignage(
+                                    device,
+                                    width=widgetWidth,
+                                    height=widgetHeight,
+                                    departureStation=data[2],
+                                )
+                                if config['dualScreen']:
+                                    virtual1 = drawBlankSignage(
+                                        device1,
+                                        width=widgetWidth,
+                                        height=widgetHeight,
+                                        departureStation=data[2],
+                                    )
+                            else:
+                                departureData = data[0]
+                                station = data[2]
+                                screenData = platform_filter(
+                                    departureData,
+                                    config["journey"]["screen1Platform"],
+                                    station,
+                                )
+                                virtual = drawSignage(
+                                    device,
+                                    width=widgetWidth,
+                                    height=widgetHeight,
+                                    data=screenData,
+                                )
+                                if config['dualScreen']:
+                                    screen1Data = platform_filter(
+                                        departureData,
+                                        config["journey"]["screen2Platform"],
+                                        station,
+                                    )
+                                    virtual1 = drawSignage(
+                                        device1,
+                                        width=widgetWidth,
+                                        height=widgetHeight,
+                                        data=screen1Data,
+                                    )
+                        else:
+                            virtual = drawBlankSignage(
+                                device,
+                                width=widgetWidth,
+                                height=widgetHeight,
+                                departureStation="Plane-Alert unavailable",
+                            )
+                            if config['dualScreen']:
+                                virtual1 = drawBlankSignage(
+                                    device1,
+                                    width=widgetWidth,
+                                    height=widgetHeight,
+                                    departureStation="Plane-Alert unavailable",
                                 )
                     else:
                         data = loadData(config["api"], config["journey"], config)
