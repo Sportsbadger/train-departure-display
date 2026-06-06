@@ -142,7 +142,7 @@ def loadConfig():
     data["planeAlert"]["enabled"] = _env_bool("planeAlertEnabled", False)
     data["planeAlert"]["sourceUrl"] = (
         os.getenv("planeAlertSourceUrl")
-        or "http://192.168.1.74/plane-alert/pa_query.php?timestamp=.*&type=json"
+        or "http://192.168.1.74/planefence/pa_query.php?timestamp=.*&type=json"
     )
     data["planeAlert"]["userAgent"] = (
         os.getenv("planeAlertUserAgent")
@@ -150,7 +150,7 @@ def loadConfig():
     )
     data["planeAlert"]["fetchTimeout"] = _env_float(
         "planeAlertFetchTimeout",
-        2.0,
+        15.0,
         minimum=0.1,
     )
     data["planeAlert"]["refreshTime"] = _env_int(

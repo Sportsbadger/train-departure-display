@@ -42,7 +42,9 @@ def test_fetch_plane_alert_json_sends_configured_user_agent(monkeypatch):
 
     assert result == [{"hex": "AE1234"}]
     assert calls["url"].endswith("pa_query.php?timestamp=.*&type=json")
-    assert calls["headers"] == {"User-Agent": "Mozilla/5.0 TestDisplay"}
+    assert calls["headers"]["User-Agent"] == "Mozilla/5.0 TestDisplay"
+    assert "application/json" in calls["headers"]["Accept"]
+    assert "gzip" in calls["headers"]["Accept-Encoding"]
     assert calls["timeout"] == 2.0
 
 

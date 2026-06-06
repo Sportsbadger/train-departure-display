@@ -59,7 +59,11 @@ def fetch_plane_alert_json(
     Raises:
         requests.RequestException: If the HTTP request fails or times out.
     """
-    headers = {"User-Agent": user_agent}
+    headers = {
+        "Accept": "application/json, text/javascript, */*; q=0.01",
+        "Accept-Encoding": "gzip, deflate",
+        "User-Agent": user_agent,
+    }
     response = requests.get(source_url, headers=headers, timeout=timeout_s)
     response.raise_for_status()
     return response.json()

@@ -17,6 +17,7 @@ def test_adsb_config_defaults_to_disabled_train_only(monkeypatch):
         "adsbUserAgent",
         "planeAlertEnabled",
         "planeAlertSourceUrl",
+        "planeAlertFetchTimeout",
     ]:
         monkeypatch.delenv(key, raising=False)
 
@@ -29,7 +30,8 @@ def test_adsb_config_defaults_to_disabled_train_only(monkeypatch):
     assert config["adsb"]["homeLon"] is None
     assert config["adsb"]["userAgent"].startswith("Mozilla/5.0")
     assert config["planeAlert"]["enabled"] is False
-    assert "pa_query.php" in config["planeAlert"]["sourceUrl"]
+    assert "planefence/pa_query.php" in config["planeAlert"]["sourceUrl"]
+    assert config["planeAlert"]["fetchTimeout"] == 15.0
 
 
 def test_adsb_config_parses_enabled_values(monkeypatch):

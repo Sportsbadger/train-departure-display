@@ -310,6 +310,15 @@ def loadPlaneAlertData(planeAlertConfig: dict[str, Any]):
             planeAlertConfig["maxAgeHours"],
             int(planeAlertConfig["displayCount"]),
         )
+    except requests.Timeout as err:
+        print("Error: Failed to fetch Plane-Alert data before timeout")
+        print(
+            "Increase planeAlertFetchTimeout if the Plane-Alert history "
+            "query is slow, or narrow the timestamp regex. URL: "
+            f"{planeAlertConfig['sourceUrl']}"
+        )
+        print(err)
+        return False
     except requests.RequestException as err:
         print("Error: Failed to fetch Plane-Alert data")
         print(err)
