@@ -163,11 +163,6 @@ def loadConfig():
         5,
         minimum=1,
     )
-    data["planeAlert"]["scrollCount"] = _env_int(
-        "planeAlertScrollCount",
-        4,
-        minimum=0,
-    )
     data["planeAlert"]["maxAgeHours"] = _env_optional_float(
         "planeAlertMaxAgeHours",
     )

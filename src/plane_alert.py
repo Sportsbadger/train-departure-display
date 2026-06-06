@@ -109,38 +109,24 @@ def parse_plane_alerts(
     )[:limit]
 
 
-def plane_alert_fetch_limit(display_count: int, scroll_count: int) -> int:
-    """Return the number of Plane-Alert records needed for display.
-
-    Args:
-        display_count: Backwards-compatible total display record count.
-        scroll_count: Number of additional aircraft to scroll below the
-            highlighted alert.
-
-    Returns:
-        A positive record limit that includes the highlighted alert and all
-        configured scrolling aircraft.
-    """
-    return max(1, display_count, scroll_count + 1)
-
-
 def select_plane_alert_scroll_alerts(
     alerts: Sequence[PlaneAlert],
-    scroll_count: int,
+    display_count: int,
 ) -> list[PlaneAlert]:
     """Return Plane-Alert records for the lower scrolling rows.
 
     Args:
         alerts: Newest-first Plane-Alert records, including the highlighted
             record at position zero.
-        scroll_count: Maximum number of additional aircraft to scroll.
+        display_count: Total number of aircraft to display, including the
+            highlighted record.
 
     Returns:
-        Aircraft after the highlighted record, capped at ``scroll_count``.
+        Aircraft after the highlighted record, capped by ``display_count``.
     """
-    if scroll_count <= 0:
+    if display_count <= 1:
         return []
-    return list(alerts[1 : scroll_count + 1])
+    return list(alerts[1:display_count])
 
 
 def build_plane_alert_detail_text(alert: PlaneAlert) -> str:

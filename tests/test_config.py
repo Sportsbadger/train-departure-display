@@ -18,7 +18,6 @@ def test_adsb_config_defaults_to_disabled_train_only(monkeypatch):
         "planeAlertEnabled",
         "planeAlertSourceUrl",
         "planeAlertFetchTimeout",
-        "planeAlertScrollCount",
     ]:
         monkeypatch.delenv(key, raising=False)
 
@@ -33,7 +32,6 @@ def test_adsb_config_defaults_to_disabled_train_only(monkeypatch):
     assert config["planeAlert"]["enabled"] is False
     assert "planefence/pa_query.php" in config["planeAlert"]["sourceUrl"]
     assert config["planeAlert"]["fetchTimeout"] == 15.0
-    assert config["planeAlert"]["scrollCount"] == 4
 
 
 def test_adsb_config_parses_enabled_values(monkeypatch):
@@ -48,7 +46,6 @@ def test_adsb_config_parses_enabled_values(monkeypatch):
     monkeypatch.setenv("planeAlertEnabled", "True")
     monkeypatch.setenv("planeAlertFetchTimeout", "0")
     monkeypatch.setenv("planeAlertDisplayCount", "0")
-    monkeypatch.setenv("planeAlertScrollCount", "0")
     monkeypatch.setenv("planeAlertMaxAgeHours", "12")
 
     config = loadConfig()
@@ -64,5 +61,4 @@ def test_adsb_config_parses_enabled_values(monkeypatch):
     assert config["planeAlert"]["enabled"] is True
     assert config["planeAlert"]["fetchTimeout"] == 0.1
     assert config["planeAlert"]["displayCount"] == 1
-    assert config["planeAlert"]["scrollCount"] == 0
     assert config["planeAlert"]["maxAgeHours"] == 12.0

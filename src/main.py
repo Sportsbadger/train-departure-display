@@ -23,7 +23,6 @@ from plane_alert import (
     fetch_plane_alert_json,
     format_plane_alert_timestamp,
     parse_plane_alerts,
-    plane_alert_fetch_limit,
     select_plane_alert_scroll_alerts,
 )
 from open import isRun
@@ -310,10 +309,7 @@ def loadPlaneAlertData(planeAlertConfig: dict[str, Any]):
         return parse_plane_alerts(
             payload,
             planeAlertConfig["maxAgeHours"],
-            plane_alert_fetch_limit(
-                int(planeAlertConfig["displayCount"]),
-                int(planeAlertConfig["scrollCount"]),
-            ),
+            int(planeAlertConfig["displayCount"]),
         )
     except requests.Timeout as err:
         print("Error: Failed to fetch Plane-Alert data before timeout")
@@ -917,7 +913,7 @@ def drawPlaneAlertSignage(
 
     loop_alerts = select_plane_alert_scroll_alerts(
         alerts,
-        int(config["planeAlert"]["scrollCount"]),
+        int(config["planeAlert"]["displayCount"]),
     )
     loop_row_gap = 12
     loop_block_height = loop_row_gap * 2

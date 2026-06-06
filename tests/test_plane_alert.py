@@ -13,7 +13,6 @@ from plane_alert import (  # noqa: E402
     fetch_plane_alert_json,
     format_plane_alert_timestamp,
     parse_plane_alerts,
-    plane_alert_fetch_limit,
     select_plane_alert_scroll_alerts,
 )
 
@@ -115,12 +114,6 @@ def test_format_plane_alert_timestamp_handles_unknown():
     assert format_plane_alert_timestamp(datetime(2026, 6, 6, 9, 5)) == "09:05"
 
 
-def test_plane_alert_fetch_limit_includes_configured_scroll_records():
-    assert plane_alert_fetch_limit(display_count=5, scroll_count=2) == 5
-    assert plane_alert_fetch_limit(display_count=1, scroll_count=4) == 5
-    assert plane_alert_fetch_limit(display_count=0, scroll_count=-1) == 1
-
-
 def test_select_plane_alert_scroll_alerts_skips_highlighted_record():
     alerts = parse_plane_alerts(
         [
@@ -132,7 +125,7 @@ def test_select_plane_alert_scroll_alerts_skips_highlighted_record():
         limit=3,
     )
 
-    result = select_plane_alert_scroll_alerts(alerts, scroll_count=1)
+    result = select_plane_alert_scroll_alerts(alerts, display_count=2)
 
     assert [alert.hex for alert in result] == ["AE0002"]
-    assert select_plane_alert_scroll_alerts(alerts, scroll_count=0) == []
+    assert select_plane_alert_scroll_alerts(alerts, display_count=1) == []
