@@ -1,6 +1,45 @@
 import os
 import re
 
+
+def _env_bool(name: str, default: bool = False) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.upper() == "TRUE"
+
+
+def _env_int(name: str, default: int, minimum: int | None = None) -> int:
+    value = int(os.getenv(name) or default)
+    if minimum is not None and value < minimum:
+        return minimum
+    return value
+
+
+def _env_float(
+    name: str,
+    default: float,
+    minimum: float | None = None,
+) -> float:
+    value = float(os.getenv(name) or default)
+    if minimum is not None and value < minimum:
+        return minimum
+    return value
+
+
+def _env_optional_float(name: str) -> float | None:
+    value = os.getenv(name)
+    if value in (None, ""):
+        return None
+    return float(value)
+
+
+def _env_optional_int(name: str) -> int | None:
+    value = os.getenv(name)
+    if value in (None, ""):
+        return None
+    return int(value)
+
 # validate platform number
 def parsePlatformData(platform):
     if platform is None:
@@ -13,7 +52,9 @@ def parsePlatformData(platform):
 def loadConfig():
     data = {
         "journey": {},
-        "api": {}
+        "api": {},
+        "transport": {},
+        "adsb": {},
     }
 
     data["targetFPS"] = int(os.getenv("targetFPS") or 70)
@@ -70,5 +111,41 @@ def loadConfig():
     data["loopDepartureInterval"] = int(os.getenv("loopDepartureInterval") or 10)
     if data["loopDepartureInterval"] < 1:
         data["loopDepartureInterval"] = 1
+
+    data["adsb"]["enabled"] = _env_bool("adsbEnabled", False)
+    data["adsb"]["sourceUrl"] = (
+        os.getenv("adsbSourceUrl")
+        or "http://192.168.1.74/readsb/data/aircraft.json"
+    )
+    data["adsb"]["userAgent"] = (
+        os.getenv("adsbUserAgent")
+        or "Mozilla/5.0 TrainDepartureDisplay/ADS-B"
+    )
+    data["adsb"]["fetchTimeout"] = _env_float(
+        "adsbFetchTimeout",
+        2.0,
+        minimum=0.1,
+    )
+    data["adsb"]["refreshTime"] = _env_int("adsbRefreshTime", 10, minimum=1)
+    data["adsb"]["displayCount"] = _env_int("adsbDisplayCount", 5, minimum=1)
+    data["adsb"]["homeLat"] = _env_optional_float("adsbHomeLat")
+    data["adsb"]["homeLon"] = _env_optional_float("adsbHomeLon")
+    data["adsb"]["maxAgeSeconds"] = _env_float(
+        "adsbMaxAgeSeconds",
+        30.0,
+        minimum=0.0,
+    )
+    data["adsb"]["maxDistanceNm"] = _env_optional_float("adsbMaxDistanceNm")
+    data["adsb"]["minAltitudeFt"] = _env_optional_int("adsbMinAltitudeFt")
+
+    data["transport"]["modes"] = os.getenv("transportModes") or "train"
+    data["transport"]["modeSwitchInterval"] = _env_int(
+        "modeSwitchInterval",
+        300,
+        minimum=1,
+    )
+    data["transport"]["fallbackMode"] = (
+        os.getenv("transportFallbackMode") or "train"
+    ).lower()
 
     return data

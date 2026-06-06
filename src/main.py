@@ -7,6 +7,15 @@ from datetime import datetime
 from PIL import ImageFont, Image, ImageDraw
 
 from trains import loadDeparturesForStation
+from adsb import (
+    AdsbDataError,
+    build_detail_text,
+    fetch_aircraft_json,
+    format_altitude,
+    format_heading,
+    format_speed,
+    parse_aircraft,
+)
 from config import loadConfig
 from open import isRun
 from departure_loop import (
@@ -14,7 +23,9 @@ from departure_loop import (
     build_loop_state,
     get_looped_departures,
     ordinal,
+    timed_loop_index,
 )
+from transport_modes import build_mode_state, parse_modes, update_mode_state
 
 import RPi.GPIO as GPIO
 
@@ -126,6 +137,9 @@ pauseCount = 0
 loopPixelsUp = 0
 loopPauseCount = 0
 loopHasElevated = 0
+adsbLoopPixelsUp = 0
+adsbLoopPauseCount = 0
+adsbLoopHasElevated = 0
 
 
 def renderStations(stations):
@@ -272,6 +286,37 @@ def loadData(apiConfig, journeyConfig, config):
         print(err.__context__)
         return False, False, journeyConfig['outOfHoursName']
 
+
+
+def loadAdsbData(adsbConfig):
+    if not adsbConfig["enabled"]:
+        return False
+    if adsbConfig["homeLat"] is None or adsbConfig["homeLon"] is None:
+        print("Error: Please configure adsbHomeLat and adsbHomeLon")
+        return False
+
+    try:
+        payload = fetch_aircraft_json(
+            adsbConfig["sourceUrl"],
+            float(adsbConfig["fetchTimeout"]),
+            adsbConfig["userAgent"],
+        )
+        return parse_aircraft(
+            payload,
+            float(adsbConfig["homeLat"]),
+            float(adsbConfig["homeLon"]),
+            float(adsbConfig["maxAgeSeconds"]),
+            adsbConfig["maxDistanceNm"],
+            adsbConfig["minAltitudeFt"],
+            int(adsbConfig["displayCount"]),
+        )
+    except requests.RequestException as err:
+        print("Error: Failed to fetch ADS-B data")
+        print(err)
+        return False
+    except AdsbDataError as err:
+        print(f"Error: Failed to parse ADS-B data: {err}")
+        return False
 
 def drawStartup(device, width, height):
     virtualViewport = viewport(device, width=width, height=height)
@@ -586,6 +631,167 @@ def drawSignage(device, width, height, data):
 
     return virtualViewport
 
+
+def renderAdsbSummary(aircraft, font):
+    def drawText(draw, *_):
+        summary = (
+            f"{aircraft.display_name}  "
+            f"{aircraft.distance_nm:.0f}nm  "
+            f"{format_altitude(aircraft.altitude_ft)}"
+        )
+        _, _, bitmap = cachedBitmapText(summary, font)
+        draw.bitmap((0, 0), bitmap, fill="yellow")
+
+    return drawText
+
+
+def renderAdsbBearing(aircraft):
+    def drawText(draw, width, *_):
+        bearing = f"{aircraft.bearing_deg:03d}deg"
+        text_width, _, bitmap = cachedBitmapText(bearing, font)
+        draw.bitmap((width - text_width, 0), bitmap, fill="yellow")
+
+    return drawText
+
+
+def renderTrackingLabel(draw, *_):
+    label = "Tracking: "
+    _, _, bitmap = cachedBitmapText(label, font)
+    draw.bitmap((0, 0), bitmap, fill="yellow")
+
+
+def drawAdsbSignage(device, width, height, aircraft):
+    global stationRenderCount, pauseCount
+    global adsbLoopPixelsUp, adsbLoopPauseCount, adsbLoopHasElevated
+
+    if len(aircraft) == 0:
+        return drawBlankSignage(
+            device,
+            width=width,
+            height=height,
+            departureStation="No aircraft",
+        )
+
+    virtualViewport = viewport(device, width=width, height=height)
+    width = virtualViewport.width
+    firstFont = fontBold if config['firstDepartureBold'] else font
+
+    bearing_width = int(font.getlength("000deg"))
+    altitude_width = int(font.getlength("00000ft"))
+    label_width = int(font.getlength("Tracking: "))
+
+    rowOneA = snapshot(
+        width - bearing_width,
+        10,
+        renderAdsbSummary(aircraft[0], firstFont),
+        interval=config["adsb"]["refreshTime"],
+    )
+    rowOneB = snapshot(
+        bearing_width,
+        10,
+        renderAdsbBearing(aircraft[0]),
+        interval=config["adsb"]["refreshTime"],
+    )
+    rowTwoA = snapshot(
+        label_width,
+        10,
+        renderTrackingLabel,
+        interval=config["adsb"]["refreshTime"],
+    )
+    rowTwoB = snapshot(
+        width - label_width,
+        10,
+        renderStations(build_detail_text(aircraft[0])),
+        interval=0.02,
+    )
+
+    loop_departures = aircraft[1 : config["adsb"]["displayCount"]]
+    loop_row_gap = 12
+    loop_block_height = loop_row_gap * 2
+    loop_frame_interval = 0.02
+
+    def get_adsb_loop_render_state():
+        start_index = timed_loop_index(
+            len(loop_departures),
+            time.monotonic(),
+            float(config["loopDepartureInterval"]),
+        )
+        return get_looped_departures(loop_departures, start_index)
+
+    def draw_loop_aircraft(draw, y_offset, plane, position, *_):
+        summary = (
+            f"{ordinal(position)}  {plane.display_name}  "
+            f"{plane.distance_nm:.0f}nm"
+        )
+        _, _, bitmap = cachedBitmapText(summary, font)
+        draw.bitmap((0, y_offset), bitmap, fill="yellow")
+
+    def draw_loop_track(draw, y_offset, plane, _position, width):
+        summary = f"{format_heading(plane.track_deg)} {format_speed(plane.ground_speed_kt)}"
+        text_width, _, bitmap = cachedBitmapText(summary, font)
+        draw.bitmap((width - text_width, y_offset), bitmap, fill="yellow")
+
+    def draw_loop_altitude(draw, y_offset, plane, _position, *_):
+        _, _, bitmap = cachedBitmapText(format_altitude(plane.altitude_ft), font)
+        draw.bitmap((0, y_offset), bitmap, fill="yellow")
+
+    def render_adsb_loop_block(renderer):
+        def drawText(draw, width, *_):
+            current = get_adsb_loop_render_state()
+            for idx, (position, plane) in enumerate(current):
+                renderer(draw, idx * loop_row_gap, plane, position, width)
+
+        return drawText
+
+    if len(loop_departures) > 0:
+        rowThreeA = snapshot(
+            width - bearing_width - altitude_width,
+            loop_block_height,
+            render_adsb_loop_block(draw_loop_aircraft),
+            interval=loop_frame_interval,
+        )
+        rowThreeB = snapshot(
+            bearing_width,
+            loop_block_height,
+            render_adsb_loop_block(draw_loop_track),
+            interval=loop_frame_interval,
+        )
+        rowThreeC = snapshot(
+            altitude_width,
+            loop_block_height,
+            render_adsb_loop_block(draw_loop_altitude),
+            interval=loop_frame_interval,
+        )
+
+    rowTime = snapshot(width, 14, renderTime, interval=0.1)
+
+    if len(virtualViewport._hotspots) > 0:
+        for vhotspot, xy in virtualViewport._hotspots:
+            virtualViewport.remove_hotspot(vhotspot, xy)
+
+    stationRenderCount = 0
+    pauseCount = 0
+    adsbLoopPixelsUp = 0
+    adsbLoopPauseCount = 0
+    adsbLoopHasElevated = 0
+
+    virtualViewport.add_hotspot(rowOneA, (0, 0))
+    virtualViewport.add_hotspot(rowOneB, (width - bearing_width, 0))
+    virtualViewport.add_hotspot(rowTwoA, (0, 12))
+    virtualViewport.add_hotspot(rowTwoB, (label_width, 12))
+
+    if len(loop_departures) > 0:
+        virtualViewport.add_hotspot(rowThreeA, (0, 24))
+        virtualViewport.add_hotspot(rowThreeB, (width - bearing_width, 24))
+        virtualViewport.add_hotspot(
+            rowThreeC,
+            (width - bearing_width - altitude_width, 24),
+        )
+
+    virtualViewport.add_hotspot(rowTime, (0, 50))
+
+    return virtualViewport
+
 def getIp():
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     s.settimeout(0)
@@ -637,22 +843,27 @@ try:
     loop_count = 0
 
     regulator = framerate_regulator(config['targetFPS'])
+    transportModes = parse_modes(
+        config["transport"]["modes"],
+        config["adsb"]["enabled"],
+    )
+    modeState = build_mode_state(transportModes, time.monotonic())
 
     if (config['debug'] > 1):
         # render screen and sleep for specified seconds
         virtual = drawDebugScreen(device, width=widgetWidth, height=widgetHeight)
         virtual.refresh()
         if config['dualScreen']:
-            virtual = drawDebugScreen(device, width=widgetWidth, height=widgetHeight, screen="2")
-            virtual.refresh()
+            virtual1 = drawDebugScreen(device1, width=widgetWidth, height=widgetHeight, screen="2")
+            virtual1.refresh()
         time.sleep(config['debug'])
     else:
         # display NRE attribution while data loads
         virtual = drawStartup(device, width=widgetWidth, height=widgetHeight)
         virtual.refresh()
         if config['dualScreen']:
-            virtual = drawStartup(device1, width=widgetWidth, height=widgetHeight)
-            virtual.refresh()
+            virtual1 = drawStartup(device1, width=widgetWidth, height=widgetHeight)
+            virtual1.refresh()
         if config['headless'] is not True:
             time.sleep(5)
 
@@ -675,13 +886,73 @@ try:
                 if timeNow - timeFPS >= config['fpsTime']:
                     timeFPS = time.time()
                     print('Effective FPS: ' + str(round(regulator.effective_FPS(), 2)))
-                if timeNow - timeAtStart >= config["refreshTime"]:
+                previousMode = modeState.active_mode
+                update_mode_state(
+                    modeState,
+                    transportModes,
+                    time.monotonic(),
+                    float(config["transport"]["modeSwitchInterval"]),
+                )
+                if modeState.active_mode != previousMode:
+                    timeAtStart = 0
+
+                refreshInterval = config["refreshTime"]
+                if modeState.active_mode == "adsb":
+                    refreshInterval = config["adsb"]["refreshTime"]
+
+                if timeNow - timeAtStart >= refreshInterval:
                     # check if debug mode is enabled 
                     if config["debug"] == True:
                         print(config["debug"])
                         virtual = drawDebugScreen(device, width=widgetWidth, height=widgetHeight, showTime=True)
                         if config['dualScreen']:
                             virtual1 = drawDebugScreen(device1, width=widgetWidth, height=widgetHeight, showTime=True, screen="2")
+                    elif modeState.active_mode == "adsb":
+                        aircraft = loadAdsbData(config["adsb"])
+                        if aircraft is not False:
+                            virtual = drawAdsbSignage(
+                                device,
+                                width=widgetWidth,
+                                height=widgetHeight,
+                                aircraft=aircraft,
+                            )
+                            if config['dualScreen']:
+                                virtual1 = drawAdsbSignage(
+                                    device1,
+                                    width=widgetWidth,
+                                    height=widgetHeight,
+                                    aircraft=aircraft,
+                                )
+                        elif config["transport"]["fallbackMode"] == "train":
+                            data = loadData(config["api"], config["journey"], config)
+                            if data[0] is False:
+                                virtual = drawBlankSignage(
+                                    device, width=widgetWidth, height=widgetHeight, departureStation=data[2])
+                                if config['dualScreen']:
+                                    virtual1 = drawBlankSignage(
+                                        device1, width=widgetWidth, height=widgetHeight, departureStation=data[2])
+                            else:
+                                departureData = data[0]
+                                station = data[2]
+                                screenData = platform_filter(departureData, config["journey"]["screen1Platform"], station)
+                                virtual = drawSignage(device, width=widgetWidth, height=widgetHeight, data=screenData)
+                                if config['dualScreen']:
+                                    screen1Data = platform_filter(departureData, config["journey"]["screen2Platform"], station)
+                                    virtual1 = drawSignage(device1, width=widgetWidth, height=widgetHeight, data=screen1Data)
+                        else:
+                            virtual = drawBlankSignage(
+                                device,
+                                width=widgetWidth,
+                                height=widgetHeight,
+                                departureStation="ADS-B unavailable",
+                            )
+                            if config['dualScreen']:
+                                virtual1 = drawBlankSignage(
+                                    device1,
+                                    width=widgetWidth,
+                                    height=widgetHeight,
+                                    departureStation="ADS-B unavailable",
+                                )
                     else:
                         data = loadData(config["api"], config["journey"], config)
                         if data[0] is False:
@@ -692,7 +963,6 @@ try:
                                     device1, width=widgetWidth, height=widgetHeight, departureStation=data[2])
                         else:
                             departureData = data[0]
-                            nextStations = data[1]
                             station = data[2]
                             screenData = platform_filter(departureData, config["journey"]["screen1Platform"], station)
                             virtual = drawSignage(device, width=widgetWidth, height=widgetHeight, data=screenData)

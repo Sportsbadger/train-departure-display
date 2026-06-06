@@ -8,6 +8,7 @@
 - **3D-printable cases**: Print your own miniature case to keep everything tidy - both desktop and 'hanging' style available.
 - **Dual display support**: Run two displays each showing departures from different platforms from a single Raspberry Pi.
 - **Scrolls next X trains**: Loops through a user-defined number of next trains
+- **Optional ADS-B mode**: Alternates with a readsb/tar1090 aircraft board showing nearby planes when configured
 
 ![](assets/blog-header.jpg)
 ![](docs/images/completed-unit.jpg)
@@ -33,7 +34,7 @@ The recommended deployment path uses balenaCloud for fleet management and OTA up
 
 ## Configuration overview
 
-The only required environment variable is the OpenLDBWS `apiKey`. All other settings are optional and are documented in [Configuration](/docs/04-configuration.md).
+The only required environment variable for train mode is the OpenLDBWS `apiKey`. Optional ADS-B aircraft mode and all other settings are documented in [Configuration](/docs/04-configuration.md).
 
 ## Local development (headless)
 
