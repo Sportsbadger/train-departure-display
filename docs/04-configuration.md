@@ -46,13 +46,14 @@ ADS-B support is disabled by default. When enabled, the display can alternate be
 | `adsbHomeLat` | `51.501` (receiver/display latitude; required for ADS-B sorting)
 | `adsbHomeLon` | `-0.142` (receiver/display longitude; required for ADS-B sorting)
 | `adsbFetchTimeout` | `2` (HTTP timeout in seconds)
+| `adsbUserAgent` | `Mozilla/5.0 TrainDepartureDisplay/ADS-B` (HTTP User-Agent sent to the ADS-B web proxy)
 | `adsbRefreshTime` | `10` (seconds between ADS-B JSON refreshes while in ADS-B mode)
 | `adsbDisplayCount` | `5` (nearest aircraft to keep for the aircraft board)
 | `adsbMaxAgeSeconds` | `30` (ignore aircraft not seen within this many seconds)
 | `adsbMaxDistanceNm` | `100` (optional maximum distance in nautical miles; blank means no distance cap)
 | `adsbMinAltitudeFt` | `1000` (optional minimum altitude in feet; blank means no altitude floor)
 
-The ADS-B board skips aircraft without positions, because nearest-aircraft sorting requires latitude and longitude. Network failures and malformed ADS-B JSON are handled separately from train loading so the train board can continue to run.
+The ADS-B board skips aircraft without positions, because nearest-aircraft sorting requires latitude and longitude. Network failures and malformed ADS-B JSON are handled separately from train loading so the train board can continue to run. The default `adsbUserAgent` avoids reverse proxy bot blocks that reject the default Python requests User-Agent.
 
 If using two screens the following line needs to be added into /boot/config.txt which is achieved by using the 'Define DT overlays' option within the Device configuration screen on balenaCloud: `spi1-3cs`
 

@@ -9,9 +9,40 @@ sys.path.append(str(PROJECT_ROOT / "src"))
 from adsb import (  # noqa: E402
     AdsbDataError,
     build_detail_text,
+    fetch_aircraft_json,
     format_altitude,
     parse_aircraft,
 )
+
+
+def test_fetch_aircraft_json_sends_configured_user_agent(monkeypatch):
+    calls = {}
+
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"aircraft": []}
+
+    def fake_get(url, headers, timeout):
+        calls["url"] = url
+        calls["headers"] = headers
+        calls["timeout"] = timeout
+        return FakeResponse()
+
+    monkeypatch.setattr("adsb.requests.get", fake_get)
+
+    result = fetch_aircraft_json(
+        "http://example.test/readsb/data/aircraft.json",
+        timeout_s=2.0,
+        user_agent="Mozilla/5.0 TestDisplay",
+    )
+
+    assert result == {"aircraft": []}
+    assert calls["url"] == "http://example.test/readsb/data/aircraft.json"
+    assert calls["headers"] == {"User-Agent": "Mozilla/5.0 TestDisplay"}
+    assert calls["timeout"] == 2.0
 
 
 def test_parse_aircraft_sorts_nearest_and_filters_stale_missing_position():

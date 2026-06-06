@@ -40,12 +40,17 @@ class AdsbDataError(ValueError):
     """Raised when ADS-B data cannot be parsed or validated."""
 
 
-def fetch_aircraft_json(source_url: str, timeout_s: float) -> Mapping[str, Any]:
+def fetch_aircraft_json(
+    source_url: str,
+    timeout_s: float,
+    user_agent: str,
+) -> Mapping[str, Any]:
     """Fetch aircraft JSON from a readsb/tar1090 endpoint.
 
     Args:
         source_url: HTTP URL for the readsb/tar1090 aircraft.json file.
         timeout_s: Maximum request time in seconds.
+        user_agent: HTTP User-Agent header for reverse proxies.
 
     Returns:
         Decoded JSON mapping.
@@ -54,7 +59,8 @@ def fetch_aircraft_json(source_url: str, timeout_s: float) -> Mapping[str, Any]:
         requests.RequestException: If the HTTP request fails or times out.
         AdsbDataError: If the response is not a JSON object.
     """
-    response = requests.get(source_url, timeout=timeout_s)
+    headers = {"User-Agent": user_agent}
+    response = requests.get(source_url, headers=headers, timeout=timeout_s)
     response.raise_for_status()
     payload = response.json()
     if not isinstance(payload, Mapping):

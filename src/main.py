@@ -298,6 +298,7 @@ def loadAdsbData(adsbConfig):
         payload = fetch_aircraft_json(
             adsbConfig["sourceUrl"],
             float(adsbConfig["fetchTimeout"]),
+            adsbConfig["userAgent"],
         )
         return parse_aircraft(
             payload,

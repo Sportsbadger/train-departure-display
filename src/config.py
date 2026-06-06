@@ -117,6 +117,10 @@ def loadConfig():
         os.getenv("adsbSourceUrl")
         or "http://192.168.1.74/readsb/data/aircraft.json"
     )
+    data["adsb"]["userAgent"] = (
+        os.getenv("adsbUserAgent")
+        or "Mozilla/5.0 TrainDepartureDisplay/ADS-B"
+    )
     data["adsb"]["fetchTimeout"] = _env_float(
         "adsbFetchTimeout",
         2.0,
