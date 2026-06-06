@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 
 import requests
 
@@ -107,6 +107,40 @@ def parse_plane_alerts(
         key=lambda alert: alert.timestamp or datetime.min,
         reverse=True,
     )[:limit]
+
+
+def plane_alert_fetch_limit(display_count: int, scroll_count: int) -> int:
+    """Return the number of Plane-Alert records needed for display.
+
+    Args:
+        display_count: Backwards-compatible total display record count.
+        scroll_count: Number of additional aircraft to scroll below the
+            highlighted alert.
+
+    Returns:
+        A positive record limit that includes the highlighted alert and all
+        configured scrolling aircraft.
+    """
+    return max(1, display_count, scroll_count + 1)
+
+
+def select_plane_alert_scroll_alerts(
+    alerts: Sequence[PlaneAlert],
+    scroll_count: int,
+) -> list[PlaneAlert]:
+    """Return Plane-Alert records for the lower scrolling rows.
+
+    Args:
+        alerts: Newest-first Plane-Alert records, including the highlighted
+            record at position zero.
+        scroll_count: Maximum number of additional aircraft to scroll.
+
+    Returns:
+        Aircraft after the highlighted record, capped at ``scroll_count``.
+    """
+    if scroll_count <= 0:
+        return []
+    return list(alerts[1 : scroll_count + 1])
 
 
 def build_plane_alert_detail_text(alert: PlaneAlert) -> str:

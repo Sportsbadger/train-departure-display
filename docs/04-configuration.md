@@ -68,11 +68,12 @@ Plane-Alert support is disabled by default. When enabled, the display can altern
 | `planeAlertSourceUrl` | `http://192.168.1.74/planefence/pa_query.php?timestamp=.*&type=json` (Plane-Alert JSON endpoint; include at least one query parameter because docker-planefence requires it)
 | `planeAlertFetchTimeout` | `15` (HTTP timeout in seconds; increase this if the browser works but the app times out)
 | `planeAlertUserAgent` | `Mozilla/5.0 TrainDepartureDisplay/Plane-Alert` (HTTP User-Agent sent to the Plane-Alert web proxy)
-| `planeAlertRefreshTime` | `30` (seconds between Plane-Alert JSON refreshes while in Plane-Alert mode)
-| `planeAlertDisplayCount` | `5` (latest alerts to keep for the Plane-Alert board)
+| `planeAlertRefreshTime` | `30` (seconds between Plane-Alert UI snapshot refreshes; JSON is fetched once when the Plane-Alert display cycle starts)
+| `planeAlertDisplayCount` | `5` (backwards-compatible latest-alert count used as the minimum number of records fetched for the Plane-Alert board)
+| `planeAlertScrollCount` | `4` (number of additional Plane-Alert aircraft to scroll below the highlighted latest alert)
 | `planeAlertMaxAgeHours` | `24` (optional maximum alert age in hours; blank means no age cap)
 
-The Plane-Alert board sorts alerts newest first using the `timestamp` field, then displays callsign, tail/hex, equipment, owner/name, first-observed position, and observed time when present. The example `planeAlertSourceUrl` queries all timestamps; for large Plane-Alert histories, prefer a narrower docker-planefence regex query or increase `planeAlertFetchTimeout`.
+The Plane-Alert board sorts alerts newest first using the `timestamp` field, then displays callsign, tail/hex, equipment, owner/name, first-observed position, and observed time when present. Plane-Alert JSON is fetched once when the Plane-Alert transport display cycle starts, then the cached board scrolls for the rest of that cycle. The example `planeAlertSourceUrl` queries all timestamps; for large Plane-Alert histories, prefer a narrower docker-planefence regex query or increase `planeAlertFetchTimeout`.
 
 If using two screens the following line needs to be added into /boot/config.txt which is achieved by using the 'Define DT overlays' option within the Device configuration screen on balenaCloud: `spi1-3cs`
 

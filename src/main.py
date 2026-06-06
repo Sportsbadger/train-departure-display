@@ -23,6 +23,8 @@ from plane_alert import (
     fetch_plane_alert_json,
     format_plane_alert_timestamp,
     parse_plane_alerts,
+    plane_alert_fetch_limit,
+    select_plane_alert_scroll_alerts,
 )
 from open import isRun
 from departure_loop import (
@@ -308,7 +310,10 @@ def loadPlaneAlertData(planeAlertConfig: dict[str, Any]):
         return parse_plane_alerts(
             payload,
             planeAlertConfig["maxAgeHours"],
-            int(planeAlertConfig["displayCount"]),
+            plane_alert_fetch_limit(
+                int(planeAlertConfig["displayCount"]),
+                int(planeAlertConfig["scrollCount"]),
+            ),
         )
     except requests.Timeout as err:
         print("Error: Failed to fetch Plane-Alert data before timeout")
@@ -910,7 +915,10 @@ def drawPlaneAlertSignage(
         interval=0.02,
     )
 
-    loop_alerts = alerts[1 : config["planeAlert"]["displayCount"]]
+    loop_alerts = select_plane_alert_scroll_alerts(
+        alerts,
+        int(config["planeAlert"]["scrollCount"]),
+    )
     loop_row_gap = 12
     loop_block_height = loop_row_gap * 2
     loop_frame_interval = 0.02
@@ -1090,7 +1098,7 @@ try:
         if config['headless'] is not True:
             time.sleep(5)
 
-    timeAtStart = time.time() - config["refreshTime"]
+    timeAtStart = 0
     timeNow = time.time()
     timeFPS = time.time()
 
@@ -1123,7 +1131,7 @@ try:
                 if modeState.active_mode == "adsb":
                     refreshInterval = config["adsb"]["refreshTime"]
                 elif modeState.active_mode == "plane-alert":
-                    refreshInterval = config["planeAlert"]["refreshTime"]
+                    refreshInterval = config["transport"]["modeSwitchInterval"]
 
                 if timeNow - timeAtStart >= refreshInterval:
                     # check if debug mode is enabled 
