@@ -127,5 +127,25 @@ def test_select_plane_alert_scroll_alerts_skips_highlighted_record():
 
     result = select_plane_alert_scroll_alerts(alerts, display_count=2)
 
-    assert [alert.hex for alert in result] == ["AE0002"]
-    assert select_plane_alert_scroll_alerts(alerts, display_count=1) == []
+    assert [alert.hex for alert in result if hasattr(alert, "hex")] == ["AE0002"]
+    assert select_plane_alert_scroll_alerts(alerts, display_count=1)[0].display_name == (
+        "***Last Line***"
+    )
+
+
+def test_select_plane_alert_scroll_alerts_appends_last_line_marker():
+    alerts = parse_plane_alerts(
+        [
+            {"hex": "AE0001", "timestamp": "2026/06/06 10:00:00"},
+            {"hex": "AE0002", "timestamp": "2026/06/06 09:00:00"},
+        ],
+        max_age_hours=None,
+        limit=2,
+    )
+
+    result = select_plane_alert_scroll_alerts(alerts, display_count=2)
+
+    assert [getattr(alert, "display_name") for alert in result] == [
+        "AE0002",
+        "***Last Line***",
+    ]

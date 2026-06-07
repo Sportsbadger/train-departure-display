@@ -25,6 +25,7 @@ from plane_alert import (
     build_plane_alert_detail_text,
     fetch_plane_alert_json,
     format_plane_alert_timestamp,
+    is_plane_alert_last_line,
     parse_plane_alerts,
     select_plane_alert_scroll_alerts,
 )
@@ -34,7 +35,6 @@ from departure_loop import (
     build_loop_state,
     get_looped_departures,
     ordinal,
-    timed_loop_index,
 )
 from transport_modes import build_mode_state, parse_modes, update_mode_state
 from refresh_cache import AsyncRefreshCache
@@ -436,8 +436,13 @@ def drawDebugScreen(device, width, height, screen="1", showTime=False):
     debugLines["1B"] = f"= {config['journey']['departureStation']}"
 
     # has a destination been set? add it in!
-    if(config["journey"]["destinationStation"]):
-        debugLines["1B"] += f"->{config['journey']['destinationStation']}"
+    destinations = [
+        station
+        for station in config["journey"]["destinationStation"]
+        if station
+    ]
+    if destinations:
+        debugLines["1B"] += f"->{','.join(destinations)}"
 
     # what about a plaform?
     if(config["journey"]["screen"+screen+"Platform"]):
@@ -502,10 +507,13 @@ def drawBlankSignage(device, width, height, departureStation):
     return virtualViewport
 
 
-def platform_filter(departureData, platformNumber, station):
+def platform_filter(departureData, platformNumber, station, numericOnly=False):
     platformDepartures = []
     for sub in departureData:
-        if platformNumber == "":
+        if numericOnly:
+            if sub.get('platform') is not None and sub['platform'].isdigit():
+                platformDepartures.append(sub)
+        elif platformNumber == "":
             platformDepartures.append(sub)
         elif sub.get('platform') is not None:
             if sub['platform'] == platformNumber:
@@ -976,15 +984,40 @@ def drawPlaneAlertSignage(
     )
     loop_row_gap = 12
     loop_block_height = loop_row_gap * 2
-    loop_frame_interval = 0.02
+    loop_frame_interval = 0.01
 
-    def get_plane_alert_loop_render_state() -> list[tuple[int, Any]]:
-        start_index = timed_loop_index(
-            len(loop_alerts),
-            time.monotonic(),
-            float(config["loopDepartureInterval"]),
+    def get_plane_alert_loop_render_state(
+    ) -> tuple[list[tuple[int, Any]], list[tuple[int, Any]], int]:
+        if not loop_alerts:
+            return [], [], 0
+
+        interval_s = max(float(config["loopDepartureInterval"]), 1.0)
+        scroll_duration_s = min(
+            loop_block_height * loop_frame_interval,
+            interval_s,
         )
-        return get_looped_departures(loop_alerts, start_index)
+        pause_duration_s = max(0.0, interval_s - scroll_duration_s)
+        now = time.monotonic()
+        rotation = int(now // interval_s)
+        start_index = advance_loop_index(
+            0,
+            len(loop_alerts),
+            step=rotation * 2,
+        )
+        next_index = advance_loop_index(start_index, len(loop_alerts))
+        elapsed_s = now % interval_s
+
+        pixel_offset = 0
+        if elapsed_s >= pause_duration_s and scroll_duration_s > 0:
+            scroll_progress = (elapsed_s - pause_duration_s) / scroll_duration_s
+            pixel_offset = min(
+                loop_block_height,
+                int(scroll_progress * loop_block_height),
+            )
+
+        current = get_looped_departures(loop_alerts, start_index)
+        upcoming = get_looped_departures(loop_alerts, next_index)
+        return current, upcoming, pixel_offset
 
     def draw_loop_alert(
         draw: ImageDraw.ImageDraw,
@@ -993,7 +1026,10 @@ def drawPlaneAlertSignage(
         position: int,
         *_: Any,
     ) -> None:
-        summary = f"{ordinal(position)}  {alert.display_name}  {alert.tail}"
+        if is_plane_alert_last_line(alert):
+            summary = alert.display_name
+        else:
+            summary = f"{ordinal(position)}  {alert.display_name}  {alert.tail}"
         _, _, bitmap = cachedBitmapText(summary.strip(), font)
         draw.bitmap((0, y_offset), bitmap, fill="yellow")
 
@@ -1004,7 +1040,9 @@ def drawPlaneAlertSignage(
         _position: int,
         width: int,
     ) -> None:
-        summary = alert.equipment or alert.name
+        summary = (
+            "" if is_plane_alert_last_line(alert) else alert.equipment or alert.name
+        )
         text_width, _, bitmap = cachedBitmapText(summary, font)
         draw.bitmap((width - text_width, y_offset), bitmap, fill="yellow")
 
@@ -1015,19 +1053,37 @@ def drawPlaneAlertSignage(
         _position: int,
         *_: Any,
     ) -> None:
-        _, _, bitmap = cachedBitmapText(
-            format_plane_alert_timestamp(alert.timestamp),
-            font,
+        timestamp = (
+            ""
+            if is_plane_alert_last_line(alert)
+            else format_plane_alert_timestamp(alert.timestamp)
         )
+        _, _, bitmap = cachedBitmapText(timestamp, font)
         draw.bitmap((0, y_offset), bitmap, fill="yellow")
 
     def render_plane_alert_loop_block(
         renderer: Callable[[ImageDraw.ImageDraw, int, Any, int, int], None],
     ) -> Callable[..., None]:
         def drawText(draw: ImageDraw.ImageDraw, width: int, *_: Any) -> None:
-            current = get_plane_alert_loop_render_state()
+            current, upcoming, pixel_offset = get_plane_alert_loop_render_state()
+            current_offset = -pixel_offset
+            next_offset = loop_block_height + current_offset
             for idx, (position, alert) in enumerate(current):
-                renderer(draw, idx * loop_row_gap, alert, position, width)
+                renderer(
+                    draw,
+                    current_offset + (idx * loop_row_gap),
+                    alert,
+                    position,
+                    width,
+                )
+            for idx, (position, alert) in enumerate(upcoming):
+                renderer(
+                    draw,
+                    next_offset + (idx * loop_row_gap),
+                    alert,
+                    position,
+                    width,
+                )
 
         return drawText
 
@@ -1079,7 +1135,7 @@ def drawPlaneAlertSignage(
 
 def getIp():
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    s.settimeout(0)
+    s.settimeout(1)
     try:
         # doesn't even have to be reachable
         s.connect(('10.254.254.254', 1))
@@ -1157,6 +1213,7 @@ def draw_cached_train_signage(
         departure_data,
         config["journey"]["screen1Platform"],
         station,
+        config["journey"]["numericPlatformsOnly"],
     )
     primary = drawSignage(
         primary_device,
@@ -1170,6 +1227,7 @@ def draw_cached_train_signage(
             departure_data,
             config["journey"]["screen2Platform"],
             station,
+            config["journey"]["numericPlatformsOnly"],
         )
         secondary = drawSignage(
             secondary_device,

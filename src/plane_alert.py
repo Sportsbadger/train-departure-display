@@ -15,6 +15,17 @@ TIMESTAMP_FORMATS = (
 
 
 @dataclass(frozen=True)
+class PlaneAlertLastLine:
+    """Sentinel row that marks the end of Plane-Alert aircraft results."""
+
+    display_name: str = "***Last Line***"
+    tail: str = ""
+    equipment: str = ""
+    name: str = ""
+    timestamp: datetime | None = None
+
+
+@dataclass(frozen=True)
 class PlaneAlert:
     """Display-ready Plane-Alert record from docker-planefence."""
 
@@ -112,7 +123,7 @@ def parse_plane_alerts(
 def select_plane_alert_scroll_alerts(
     alerts: Sequence[PlaneAlert],
     display_count: int,
-) -> list[PlaneAlert]:
+) -> list[PlaneAlert | PlaneAlertLastLine]:
     """Return Plane-Alert records for the lower scrolling rows.
 
     Args:
@@ -122,11 +133,19 @@ def select_plane_alert_scroll_alerts(
             highlighted record.
 
     Returns:
-        Aircraft after the highlighted record, capped by ``display_count``.
+        Aircraft after the highlighted record, capped by ``display_count``,
+        followed by the final sentinel row.
     """
-    if display_count <= 1:
+    if not alerts:
         return []
-    return list(alerts[1:display_count])
+    if display_count <= 1:
+        return [PlaneAlertLastLine()]
+    return [*alerts[1:display_count], PlaneAlertLastLine()]
+
+
+def is_plane_alert_last_line(alert: Any) -> bool:
+    """Return whether a Plane-Alert display row is the final sentinel."""
+    return isinstance(alert, PlaneAlertLastLine)
 
 
 def build_plane_alert_detail_text(alert: PlaneAlert) -> str:

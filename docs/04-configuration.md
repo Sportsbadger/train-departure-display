@@ -12,7 +12,7 @@ These environment variables are specified using the [balenaCloud dashboard](http
 |`apiKey` **(REQUIRED)** | `xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx` (OpenLDBWS API key)
 |`TZ`  | `Europe/London`, will default to UTC if not set ([timezones](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones))
 |`departureStation`  | `PAD` ([station code](https://www.nationalrail.co.uk/stations_destinations/48541.aspx))
-|`destinationStation`  | `HWV` ([station code](https://www.nationalrail.co.uk/stations_destinations/48541.aspx)) [optional] Filters trains shown to only those that call at this station
+|`destinationStation`  | `HWV` or `HWV,RDG` ([station code](https://www.nationalrail.co.uk/stations_destinations/48541.aspx)) [optional] Filters trains shown to only those that call at one or more comma-separated destination stations
 |`timeOffset`  | `5` [optional] (Time offset, in minutes, for the departure board. Can be used to see into the future (positive value) or past (negative value). Set 5 if you live 5 min from the station and want to hide departures that are too soon to catch)
 |`refreshTime` | `120` (seconds between data refresh)
 |`screenRotation` | `2` (rotates the output of the OLED, 0 for when using the desk stand, 2 for the monitor mount ([docs](https://luma-oled.readthedocs.io/en/latest/api-documentation.html#luma.oled.device.ssd1322)))
@@ -22,6 +22,7 @@ These environment variables are specified using the [balenaCloud dashboard](http
 | `dualScreen` | `True` (if you are using two displays)
 | `screen1Platform` | `1` (sets the platform you want to have displayed on the first or single-screen display)
 | `screen2Platform` | `2` (sets the platform you want to have displayed on the second display)
+| `numericPlatformsOnly` | `False` (when `True`, suppresses departures from lettered platforms such as `1A` / `1B`)
 | `individualStationDepartureTime` | `False` (Displays the estimated or scheduled time of the service at each leg of a journey)
 | `fpsTime` | `4` (adjusts how often the effective FPS is displayed)
 | `headless` | `True` (outputs to noop serial device rather than serial port; useful for running on a development machine)
@@ -93,7 +94,7 @@ Plane-Alert support is disabled by default. When enabled, the display can altern
 | `planeAlertDisplayCount` | `5` (total Plane-Alert aircraft to show: the latest highlighted alert plus the remaining aircraft in the lower scrolling rows)
 | `planeAlertMaxAgeHours` | `24` (optional maximum alert age in hours; blank means no age cap)
 
-The Plane-Alert board sorts alerts newest first using the `timestamp` field, then displays callsign, tail/hex, equipment, owner/name, first-observed position, and observed time when present. Plane-Alert JSON is refreshed in the background and cached before/while the mode is displayed, so slow history queries do not block OLED animation or mode transitions. The example `planeAlertSourceUrl` queries all timestamps; for large Plane-Alert histories, prefer a narrower docker-planefence regex query or increase `planeAlertFetchTimeout`.
+The Plane-Alert board sorts alerts newest first using the `timestamp` field, then displays callsign, tail/hex, equipment, owner/name, first-observed position, and observed time when present. The lower aircraft rows now smooth-scroll between result windows and append a `***Last Line***` marker after the final aircraft. Plane-Alert JSON is refreshed in the background and cached before/while the mode is displayed, so slow history queries do not block OLED animation or mode transitions. The example `planeAlertSourceUrl` queries all timestamps; for large Plane-Alert histories, prefer a narrower docker-planefence regex query or increase `planeAlertFetchTimeout`.
 
 If using two screens the following line needs to be added into /boot/config.txt which is achieved by using the 'Define DT overlays' option within the Device configuration screen on balenaCloud: `spi1-3cs`
 

@@ -3,6 +3,20 @@ import re
 import xmltodict
 
 
+def escapeXml(value):
+    """Escape XML special characters to prevent XML injection."""
+    if value is None:
+        return ""
+    text = str(value)
+    return (
+        text.replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace('"', "&quot;")
+        .replace("'", "&apos;")
+    )
+
+
 def removeBrackets(originalName):
     return re.split(r" \(", originalName)[0]
 
@@ -209,28 +223,60 @@ def loadDeparturesForStation(journeyConfig, apiKey, rows):
         raise ValueError(
             "Please configure the apiKey environment variable")
 
-    APIRequest = """
+    destinations = journeyConfig["destinationStation"]
+    if isinstance(destinations, str):
+        destinations = [destinations]
+
+    all_departures = []
+    departure_station_name = ""
+    seen_services = set()
+
+    for destination in destinations:
+        APIRequest = """
         <x:Envelope xmlns:x="http://schemas.xmlsoap.org/soap/envelope/" xmlns:ldb="http://thalesgroup.com/RTTI/2017-10-01/ldb/" xmlns:typ4="http://thalesgroup.com/RTTI/2013-11-28/Token/types">
         <x:Header>
-            <typ4:AccessToken><typ4:TokenValue>""" + apiKey + """</typ4:TokenValue></typ4:AccessToken>
+            <typ4:AccessToken><typ4:TokenValue>""" + escapeXml(apiKey) + """</typ4:TokenValue></typ4:AccessToken>
         </x:Header>
         <x:Body>
             <ldb:GetDepBoardWithDetailsRequest>
-                <ldb:numRows>""" + rows + """</ldb:numRows>
-                <ldb:crs>""" + journeyConfig["departureStation"] + """</ldb:crs>
-                <ldb:timeOffset>""" + journeyConfig["timeOffset"] + """</ldb:timeOffset>
-                <ldb:filterCrs>""" + journeyConfig["destinationStation"] + """</ldb:filterCrs>
+                <ldb:numRows>""" + escapeXml(rows) + """</ldb:numRows>
+                <ldb:crs>""" + escapeXml(journeyConfig["departureStation"]) + """</ldb:crs>
+                <ldb:timeOffset>""" + escapeXml(journeyConfig["timeOffset"]) + """</ldb:timeOffset>
+                <ldb:filterCrs>""" + escapeXml(destination) + """</ldb:filterCrs>
                 <ldb:filterType>to</ldb:filterType>
                 <ldb:timeWindow>120</ldb:timeWindow>
             </ldb:GetDepBoardWithDetailsRequest>
         </x:Body>
     </x:Envelope>"""
 
-    headers = {'Content-Type': 'text/xml'}
-    apiURL = "https://lite.realtime.nationalrail.co.uk/OpenLDBWS/ldb11.asmx"
+        headers = {'Content-Type': 'text/xml'}
+        apiURL = "https://lite.realtime.nationalrail.co.uk/OpenLDBWS/ldb11.asmx"
+        APIOut = requests.post(
+            apiURL,
+            data=APIRequest,
+            headers=headers,
+            timeout=10,
+        ).text
 
-    APIOut = requests.post(apiURL, data=APIRequest, headers=headers).text
+        Departures, departure_station_name = ProcessDepartures(
+            journeyConfig,
+            APIOut,
+        )
+        if not Departures:
+            continue
 
-    Departures, departureStationName = ProcessDepartures(journeyConfig, APIOut)
+        for departure in Departures:
+            key = (
+                departure["aimed_departure_time"],
+                departure["destination_name"],
+            )
+            if key in seen_services:
+                continue
+            seen_services.add(key)
+            all_departures.append(departure)
 
-    return Departures, departureStationName
+    all_departures = sorted(
+        all_departures,
+        key=lambda departure: departure["aimed_departure_time"],
+    )
+    return all_departures if all_departures else None, departure_station_name

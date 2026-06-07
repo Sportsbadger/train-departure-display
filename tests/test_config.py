@@ -98,3 +98,13 @@ def test_adsb_config_parses_enabled_values(monkeypatch):
     assert config["planeAlert"]["fetchTimeout"] == 0.1
     assert config["planeAlert"]["displayCount"] == 1
     assert config["planeAlert"]["maxAgeHours"] == 12.0
+
+
+def test_destination_station_parses_comma_separated_values(monkeypatch):
+    monkeypatch.setenv("destinationStation", "HWV, RDG")
+    monkeypatch.setenv("numericPlatformsOnly", "True")
+
+    config = loadConfig()
+
+    assert config["journey"]["destinationStation"] == ["HWV", "RDG"]
+    assert config["journey"]["numericPlatformsOnly"] is True
