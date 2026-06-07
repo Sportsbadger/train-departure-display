@@ -5,3 +5,4 @@ xmltodict
 RPi.GPIO
 spidev
 cbor2<6
+paho-mqtt

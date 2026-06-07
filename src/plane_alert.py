@@ -129,6 +129,177 @@ def select_plane_alert_scroll_alerts(
     return list(alerts[1:display_count])
 
 
+
+
+class _PlaneAlertTemplateContext(dict[str, Any]):
+    """Lazy template context for Plane-Alert display templates."""
+
+    def __init__(
+        self,
+        alert: PlaneAlert,
+        position: int | None,
+    ) -> None:
+        """Create a Plane-Alert template context.
+
+        Args:
+            alert: Plane-Alert record used to populate requested variables.
+            position: Optional one-based alert position for lower detail rows.
+        """
+        super().__init__()
+        self._alert = alert
+        self._position = position
+
+    def __missing__(self, key: str) -> Any:
+        value = _plane_alert_template_value(key, self._alert, self._position)
+        self[key] = value
+        return value
+
+
+def build_plane_alert_template_text(
+    template: str,
+    alert: PlaneAlert,
+    position: int | None = None,
+) -> str:
+    """Build Plane-Alert display text from a configured template.
+
+    Args:
+        template: Python ``str.format_map``-style template containing
+            Plane-Alert variable names in braces.
+        alert: Plane-Alert record used to populate template variables.
+        position: Optional one-based alert position for lower detail rows.
+
+    Returns:
+        Rendered display text with unknown variables converted to blank text.
+    """
+    try:
+        return template.format_map(
+            _PlaneAlertTemplateContext(alert, position),
+        ).strip()
+    except (KeyError, TypeError, ValueError):
+        return ""
+
+
+def _plane_alert_template_value(
+    key: str,
+    alert: PlaneAlert,
+    position: int | None,
+) -> Any:
+    match key:
+        case "hex":
+            return alert.hex.upper()
+        case "tail":
+            return alert.tail
+        case "tail_or_hex":
+            return alert.tail or alert.hex.upper()
+        case "call":
+            return alert.call.removeprefix("@")
+        case "display_name":
+            return alert.display_name
+        case "name":
+            return alert.name
+        case "owner":
+            return alert.name
+        case "equipment":
+            return alert.equipment
+        case "aircraft_type":
+            return alert.equipment
+        case "timestamp":
+            if alert.timestamp is None:
+                return ""
+            return alert.timestamp.strftime("%Y-%m-%d %H:%M:%S")
+        case "time":
+            return format_plane_alert_timestamp(alert.timestamp)
+        case "date_time":
+            if alert.timestamp is None:
+                return ""
+            return alert.timestamp.strftime("%d %b %H:%M")
+        case "latitude":
+            return "" if alert.lat is None else f"{alert.lat:.3f}"
+        case "longitude":
+            return "" if alert.lon is None else f"{alert.lon:.3f}"
+        case "position":
+            return position or ""
+        case "position_ordinal":
+            return _ordinal_text(position) if position is not None else ""
+        case "summary_left":
+            return build_plane_alert_summary_left_text(alert)
+        case "summary_right":
+            return alert.hex.upper() or "------"
+        case "summary":
+            return build_plane_alert_summary_text(alert)
+        case "detail":
+            return build_plane_alert_detail_text(alert)
+        case "loop_alert":
+            if position is None:
+                return ""
+            return build_plane_alert_loop_alert_text(alert, position)
+        case "loop_info":
+            return build_plane_alert_loop_info_text(alert)
+        case "loop_time":
+            return format_plane_alert_timestamp(alert.timestamp)
+        case _:
+            return ""
+
+
+def build_plane_alert_summary_left_text(alert: PlaneAlert) -> str:
+    """Build the left-side top-row summary for a Plane-Alert record."""
+    return "  ".join(
+        part
+        for part in [
+            alert.display_name,
+            alert.tail or alert.hex.upper(),
+            format_plane_alert_timestamp(alert.timestamp),
+        ]
+        if part
+    )
+
+
+def build_plane_alert_summary_text(alert: PlaneAlert) -> str:
+    """Build the complete top-row summary for a Plane-Alert record."""
+    return "    ".join(
+        part
+        for part in [
+            build_plane_alert_summary_left_text(alert),
+            alert.hex.upper(),
+        ]
+        if part
+    )
+
+
+def build_plane_alert_loop_alert_text(alert: PlaneAlert, position: int) -> str:
+    """Build the lower-row left text for a secondary Plane-Alert record."""
+    return "  ".join(
+        part
+        for part in [
+            _ordinal_text(position),
+            alert.display_name,
+            alert.tail,
+        ]
+        if part
+    )
+
+
+def build_plane_alert_loop_info_text(alert: PlaneAlert) -> str:
+    """Build the lower-row right text for a secondary Plane-Alert record."""
+    return "  ".join(
+        part
+        for part in [
+            alert.equipment or alert.name,
+            format_plane_alert_timestamp(alert.timestamp),
+        ]
+        if part
+    )
+
+
+def _ordinal_text(position: int | None) -> str:
+    if position is None:
+        return ""
+    if 10 <= position % 100 <= 20:
+        suffix = "th"
+    else:
+        suffix = {1: "st", 2: "nd", 3: "rd"}.get(position % 10, "th")
+    return f"{position}{suffix}"
+
 def build_plane_alert_detail_text(alert: PlaneAlert) -> str:
     """Build the scrolling detail line for a Plane-Alert record."""
     parts = [alert.equipment, alert.name, alert.hex.upper()]

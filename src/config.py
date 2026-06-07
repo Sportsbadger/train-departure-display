@@ -8,6 +8,17 @@ DEFAULT_ADSB_SCROLL_TEMPLATE = "{detail}"
 DEFAULT_ADSB_NEXT_LEFT_TEMPLATE = "{loop_aircraft}"
 DEFAULT_ADSB_NEXT_RIGHT_TEMPLATE = "{loop_info}"
 
+DEFAULT_PLANE_ALERT_TOP_LEFT_TEMPLATE = "{summary_left}"
+DEFAULT_PLANE_ALERT_TOP_RIGHT_TEMPLATE = "{summary_right}"
+DEFAULT_PLANE_ALERT_SCROLL_TEMPLATE = "{detail}"
+DEFAULT_PLANE_ALERT_NEXT_LEFT_TEMPLATE = "{loop_alert}"
+DEFAULT_PLANE_ALERT_NEXT_RIGHT_TEMPLATE = "{loop_info}"
+
+DEFAULT_ALERT_TITLE_TEMPLATE = "{title}"
+DEFAULT_ALERT_TOP_TEMPLATE = "{headline}"
+DEFAULT_ALERT_MIDDLE_TEMPLATE = "{equipment}  {name}"
+DEFAULT_ALERT_BOTTOM_TEMPLATE = "{detail}"
+
 
 def _env_bool(name: str, default: bool = False) -> bool:
     value = os.getenv(name)
@@ -63,6 +74,7 @@ def loadConfig():
         "transport": {},
         "adsb": {},
         "planeAlert": {},
+        "alerts": {},
     }
 
     data["targetFPS"] = int(os.getenv("targetFPS") or 70)
@@ -206,6 +218,64 @@ def loadConfig():
     )
     data["planeAlert"]["maxAgeHours"] = _env_optional_float(
         "planeAlertMaxAgeHours",
+    )
+    data["planeAlert"]["topLeftTemplate"] = (
+        os.getenv("planeAlertTopLeftTemplate")
+        or DEFAULT_PLANE_ALERT_TOP_LEFT_TEMPLATE
+    )
+    data["planeAlert"]["topRightTemplate"] = (
+        os.getenv("planeAlertTopRightTemplate")
+        or DEFAULT_PLANE_ALERT_TOP_RIGHT_TEMPLATE
+    )
+    data["planeAlert"]["scrollTemplate"] = (
+        os.getenv("planeAlertScrollTemplate")
+        or DEFAULT_PLANE_ALERT_SCROLL_TEMPLATE
+    )
+    data["planeAlert"]["nextLeftTemplate"] = (
+        os.getenv("planeAlertNextLeftTemplate")
+        or DEFAULT_PLANE_ALERT_NEXT_LEFT_TEMPLATE
+    )
+    data["planeAlert"]["nextRightTemplate"] = (
+        os.getenv("planeAlertNextRightTemplate")
+        or DEFAULT_PLANE_ALERT_NEXT_RIGHT_TEMPLATE
+    )
+
+    data["alerts"]["enabled"] = _env_bool("alertsEnabled", False)
+    data["alerts"]["mqttHost"] = os.getenv("alertsMqttHost") or "127.0.0.1"
+    data["alerts"]["mqttPort"] = _env_int("alertsMqttPort", 1883, minimum=1)
+    data["alerts"]["mqttTopic"] = (
+        os.getenv("alertsMqttTopic") or "plane-alert/alerts/#"
+    )
+    data["alerts"]["mqttUsername"] = os.getenv("alertsMqttUsername") or ""
+    data["alerts"]["mqttPassword"] = os.getenv("alertsMqttPassword") or ""
+    data["alerts"]["mqttClientId"] = (
+        os.getenv("alertsMqttClientId") or "train-departure-display-alerts"
+    )
+    data["alerts"]["mqttKeepalive"] = _env_int(
+        "alertsMqttKeepalive",
+        60,
+        minimum=1,
+    )
+    data["alerts"]["mqttQos"] = _env_int("alertsMqttQos", 0, minimum=0)
+    if data["alerts"]["mqttQos"] > 2:
+        data["alerts"]["mqttQos"] = 2
+    data["alerts"]["mqttTlsEnabled"] = _env_bool("alertsMqttTlsEnabled", False)
+    data["alerts"]["displayDuration"] = _env_float(
+        "alertsDisplayDuration",
+        20.0,
+        minimum=1.0,
+    )
+    data["alerts"]["titleTemplate"] = (
+        os.getenv("alertsTitleTemplate") or DEFAULT_ALERT_TITLE_TEMPLATE
+    )
+    data["alerts"]["topTemplate"] = (
+        os.getenv("alertsTopTemplate") or DEFAULT_ALERT_TOP_TEMPLATE
+    )
+    data["alerts"]["middleTemplate"] = (
+        os.getenv("alertsMiddleTemplate") or DEFAULT_ALERT_MIDDLE_TEMPLATE
+    )
+    data["alerts"]["bottomTemplate"] = (
+        os.getenv("alertsBottomTemplate") or DEFAULT_ALERT_BOTTOM_TEMPLATE
     )
 
     data["transport"]["modes"] = os.getenv("transportModes") or "train"

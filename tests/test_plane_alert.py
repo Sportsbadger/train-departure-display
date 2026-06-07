@@ -10,6 +10,7 @@ sys.path.append(str(PROJECT_ROOT / "src"))
 from plane_alert import (  # noqa: E402
     PlaneAlertDataError,
     build_plane_alert_detail_text,
+    build_plane_alert_template_text,
     fetch_plane_alert_json,
     format_plane_alert_timestamp,
     parse_plane_alerts,
@@ -129,3 +130,31 @@ def test_select_plane_alert_scroll_alerts_skips_highlighted_record():
 
     assert [alert.hex for alert in result] == ["AE0002"]
     assert select_plane_alert_scroll_alerts(alerts, display_count=1) == []
+
+
+def test_build_plane_alert_template_text_handles_defaults_and_unknowns():
+    alert = parse_plane_alerts(
+        [
+            {
+                "hex": "AE1234",
+                "tail": "N123AB",
+                "call": "@SAM123",
+                "name": "USAF",
+                "equipment": "Boeing C-32A",
+                "timestamp": "2026/06/06 11:30:00",
+            }
+        ],
+        max_age_hours=None,
+        limit=1,
+    )[0]
+
+    assert (
+        build_plane_alert_template_text("{summary_left}", alert)
+        == "SAM123  N123AB  11:30"
+    )
+    assert build_plane_alert_template_text("{summary_right}", alert) == "AE1234"
+    assert (
+        build_plane_alert_template_text("{loop_alert}", alert, 2)
+        == "2nd  SAM123  N123AB"
+    )
+    assert build_plane_alert_template_text("{missing}", alert) == ""
