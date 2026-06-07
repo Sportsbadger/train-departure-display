@@ -356,6 +356,25 @@ def test_aircraft_template_text_blanks_unknown_variables():
     )
 
 
+def test_aircraft_template_text_only_builds_requested_fields(monkeypatch):
+    aircraft = parse_aircraft(
+        {"aircraft": [{"hex": "abc123", "lat": 51.5, "lon": -0.1}]},
+        home_lat=51.5,
+        home_lon=-0.1,
+        max_age_s=30,
+        max_distance_nm=None,
+        min_altitude_ft=None,
+        limit=5,
+    )[0]
+
+    def fail_detail_builder(_aircraft):
+        raise AssertionError("detail should be lazy")
+
+    monkeypatch.setattr("adsb.build_detail_text", fail_detail_builder)
+
+    assert build_aircraft_template_text("{display_name}", aircraft) == "ABC123"
+
+
 def test_parse_route_lookup_rejects_unsupported_payload_shape():
     with pytest.raises(AdsbRouteDataError, match="route response"):
         parse_route_lookup({"callsign": "BAW15"}, "iata")

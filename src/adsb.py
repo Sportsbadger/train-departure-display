@@ -322,10 +322,27 @@ def select_secondary_aircraft(
 
 
 class _AircraftTemplateContext(dict[str, Any]):
-    """Template context that renders unknown or blank variables as empty text."""
+    """Lazy template context that renders unknown variables as empty text."""
 
-    def __missing__(self, key: str) -> str:
-        return ""
+    def __init__(
+        self,
+        aircraft: AdsbAircraft,
+        position: int | None,
+    ) -> None:
+        """Create an aircraft template context.
+
+        Args:
+            aircraft: Aircraft used to populate requested variables.
+            position: Optional one-based aircraft position for lower detail rows.
+        """
+        super().__init__()
+        self._aircraft = aircraft
+        self._position = position
+
+    def __missing__(self, key: str) -> Any:
+        value = _aircraft_template_value(key, self._aircraft, self._position)
+        self[key] = value
+        return value
 
 
 def build_aircraft_template_text(
@@ -345,73 +362,116 @@ def build_aircraft_template_text(
         Rendered display text with surrounding whitespace removed. Unknown
         variables render as blank text so a typo does not crash animation.
     """
-    context = _AircraftTemplateContext(
-        hex=aircraft.hex.upper(),
-        flight=aircraft.flight,
-        display_name=aircraft.display_name,
-        registration=aircraft.registration,
-        route=aircraft.route,
-        origin=aircraft.origin,
-        destination=aircraft.destination,
-        aircraft_type=aircraft.aircraft_type,
-        description=aircraft.description,
-        latitude=aircraft.latitude,
-        longitude=aircraft.longitude,
-        distance_nm=aircraft.distance_nm,
-        distance=f"{aircraft.distance_nm:.0f}nm",
-        bearing_deg=aircraft.bearing_deg,
-        bearing=format_bearing(aircraft.bearing_deg),
-        altitude_ft=(
-            aircraft.altitude_ft if aircraft.altitude_ft is not None else ""
-        ),
-        altitude=format_altitude(aircraft.altitude_ft),
-        ground_speed_kt=(
-            aircraft.ground_speed_kt
-            if aircraft.ground_speed_kt is not None
-            else ""
-        ),
-        speed=format_speed(aircraft.ground_speed_kt),
-        ground_speed=format_ground_speed(aircraft.ground_speed_kt),
-        true_air_speed_kt=(
-            aircraft.true_air_speed_kt
-            if aircraft.true_air_speed_kt is not None
-            else ""
-        ),
-        true_air_speed=format_true_air_speed(aircraft.true_air_speed_kt),
-        summary_speed=format_summary_speed(aircraft),
-        mach_value=aircraft.mach if aircraft.mach is not None else "",
-        mach=format_mach(aircraft.mach),
-        track_deg=(
-            aircraft.track_deg if aircraft.track_deg is not None else ""
-        ),
-        heading=format_heading(aircraft.track_deg),
-        vertical_rate_fpm=(
-            aircraft.vertical_rate_fpm
-            if aircraft.vertical_rate_fpm is not None
-            else ""
-        ),
-        vertical_rate=format_vertical_rate(aircraft.vertical_rate_fpm),
-        squawk=aircraft.squawk,
-        squawk_label=f"sq {aircraft.squawk}" if aircraft.squawk else "",
-        seen_seconds=aircraft.seen_seconds,
-        seen=format_seen(aircraft.seen_seconds),
-        position=position or "",
-        position_ordinal=(
-            ordinal_text(position) if position is not None else ""
-        ),
-        summary_left=build_summary_left_text(aircraft),
-        summary_right=build_summary_right_text(aircraft),
-        summary=build_summary_text(aircraft),
-        detail=build_detail_text(aircraft),
-        loop_aircraft=build_loop_aircraft_text(aircraft, position)
-        if position is not None
-        else "",
-        loop_info=build_loop_info_text(aircraft),
-    )
     try:
-        return template.format_map(context).strip()
+        return template.format_map(
+            _AircraftTemplateContext(aircraft, position),
+        ).strip()
     except (KeyError, TypeError, ValueError):
         return ""
+
+
+def _aircraft_template_value(
+    key: str,
+    aircraft: AdsbAircraft,
+    position: int | None,
+) -> Any:
+    match key:
+        case "hex":
+            return aircraft.hex.upper()
+        case "flight":
+            return aircraft.flight
+        case "display_name":
+            return aircraft.display_name
+        case "registration":
+            return aircraft.registration
+        case "route":
+            return aircraft.route
+        case "origin":
+            return aircraft.origin
+        case "destination":
+            return aircraft.destination
+        case "aircraft_type":
+            return aircraft.aircraft_type
+        case "description":
+            return aircraft.description
+        case "latitude":
+            return aircraft.latitude
+        case "longitude":
+            return aircraft.longitude
+        case "distance_nm":
+            return aircraft.distance_nm
+        case "distance":
+            return f"{aircraft.distance_nm:.0f}nm"
+        case "bearing_deg":
+            return aircraft.bearing_deg
+        case "bearing":
+            return format_bearing(aircraft.bearing_deg)
+        case "altitude_ft":
+            if aircraft.altitude_ft is None:
+                return ""
+            return aircraft.altitude_ft
+        case "altitude":
+            return format_altitude(aircraft.altitude_ft)
+        case "ground_speed_kt":
+            if aircraft.ground_speed_kt is None:
+                return ""
+            return aircraft.ground_speed_kt
+        case "speed":
+            return format_speed(aircraft.ground_speed_kt)
+        case "ground_speed":
+            return format_ground_speed(aircraft.ground_speed_kt)
+        case "true_air_speed_kt":
+            if aircraft.true_air_speed_kt is None:
+                return ""
+            return aircraft.true_air_speed_kt
+        case "true_air_speed":
+            return format_true_air_speed(aircraft.true_air_speed_kt)
+        case "summary_speed":
+            return format_summary_speed(aircraft)
+        case "mach_value":
+            return aircraft.mach if aircraft.mach is not None else ""
+        case "mach":
+            return format_mach(aircraft.mach)
+        case "track_deg":
+            if aircraft.track_deg is None:
+                return ""
+            return aircraft.track_deg
+        case "heading":
+            return format_heading(aircraft.track_deg)
+        case "vertical_rate_fpm":
+            if aircraft.vertical_rate_fpm is None:
+                return ""
+            return aircraft.vertical_rate_fpm
+        case "vertical_rate":
+            return format_vertical_rate(aircraft.vertical_rate_fpm)
+        case "squawk":
+            return aircraft.squawk
+        case "squawk_label":
+            return f"sq {aircraft.squawk}" if aircraft.squawk else ""
+        case "seen_seconds":
+            return aircraft.seen_seconds
+        case "seen":
+            return format_seen(aircraft.seen_seconds)
+        case "position":
+            return position or ""
+        case "position_ordinal":
+            return ordinal_text(position) if position is not None else ""
+        case "summary_left":
+            return build_summary_left_text(aircraft)
+        case "summary_right":
+            return build_summary_right_text(aircraft)
+        case "summary":
+            return build_summary_text(aircraft)
+        case "detail":
+            return build_detail_text(aircraft)
+        case "loop_aircraft":
+            if position is None:
+                return ""
+            return build_loop_aircraft_text(aircraft, position)
+        case "loop_info":
+            return build_loop_info_text(aircraft)
+        case _:
+            return ""
 
 
 def build_summary_left_text(aircraft: AdsbAircraft) -> str:

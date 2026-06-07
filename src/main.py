@@ -159,11 +159,10 @@ def renderStations(stations, initial_pause_frames=20):
     pixels_up = 0
     has_elevated = False
     pause_count = 0
+    txt_width, txt_height, bitmap = cachedBitmapText(stations, font)
 
     def drawText(draw, *_):
         nonlocal pixels_left, pixels_up, has_elevated, pause_count
-
-        txt_width, txt_height, bitmap = cachedBitmapText(stations, font)
 
         if has_elevated:
             # slide the bitmap left until it's fully out of view
@@ -708,10 +707,8 @@ def drawSignage(device, width, height, data):
     return virtualViewport
 
 
-def renderAdsbSummary(aircraft, font, left_template: str, right_template: str):
+def renderAdsbSummary(left_text: str, right_text: str, font):
     def drawText(draw, width, *_):
-        left_text = build_aircraft_template_text(left_template, aircraft)
-        right_text = build_aircraft_template_text(right_template, aircraft)
         _, _, left_bitmap = cachedBitmapText(left_text, font)
         right_width, _, right_bitmap = cachedBitmapText(right_text, font)
 
@@ -772,23 +769,30 @@ def drawAdsbSignage(device, width, height, aircraft):
         float(config["loopDepartureInterval"]) * 1.5,
     )
     featured_aircraft = aircraft[featured_index]
+    top_left_text = build_aircraft_template_text(
+        top_left_template,
+        featured_aircraft,
+    )
+    top_right_text = build_aircraft_template_text(
+        top_right_template,
+        featured_aircraft,
+    )
+    scroll_text = build_aircraft_template_text(
+        scroll_template,
+        featured_aircraft,
+    )
 
     rowOneA = snapshot(
         width,
         10,
-        renderAdsbSummary(
-            featured_aircraft,
-            firstFont,
-            top_left_template,
-            top_right_template,
-        ),
+        renderAdsbSummary(top_left_text, top_right_text, firstFont),
         interval=loop_frame_interval,
     )
     rowTwoB = snapshot(
         width,
         10,
         renderStations(
-            build_aircraft_template_text(scroll_template, featured_aircraft),
+            scroll_text,
             initial_pause_frames=50,
         ),
         interval=loop_frame_interval,
@@ -799,44 +803,56 @@ def drawAdsbSignage(device, width, height, aircraft):
         featured_index,
     )
 
+    loop_display_rows = [
+        (
+            position,
+            plane,
+            build_aircraft_template_text(next_left_template, plane, position),
+            build_aircraft_template_text(next_right_template, plane, position),
+        )
+        for position, plane in loop_departures
+    ]
+
     def get_adsb_loop_render_state():
-        return loop_departures
+        return loop_display_rows
 
     right_info_width = max(
         (
-            int(
-                font.getlength(
-                    build_aircraft_template_text(
-                        next_right_template,
-                        plane,
-                        position,
-                    )
-                )
-            )
-            for position, plane in loop_departures
+            int(font.getlength(right_text))
+            for _position, _plane, _left_text, right_text in loop_display_rows
         ),
         default=0,
     )
 
-    def draw_loop_aircraft(draw, y_offset, plane, position, *_):
-        _, _, bitmap = cachedBitmapText(
-            build_aircraft_template_text(next_left_template, plane, position),
-            font,
-        )
+    def draw_loop_aircraft(
+        draw,
+        y_offset,
+        _position,
+        _plane,
+        left_text,
+        _right_text,
+        _width,
+    ):
+        _, _, bitmap = cachedBitmapText(left_text, font)
         draw.bitmap((0, y_offset), bitmap, fill="yellow")
 
-    def draw_loop_track(draw, y_offset, plane, position, width):
-        text_width, _, bitmap = cachedBitmapText(
-            build_aircraft_template_text(next_right_template, plane, position),
-            font,
-        )
+    def draw_loop_track(
+        draw,
+        y_offset,
+        _position,
+        _plane,
+        _left_text,
+        right_text,
+        width,
+    ):
+        text_width, _, bitmap = cachedBitmapText(right_text, font)
         draw.bitmap((width - text_width, y_offset), bitmap, fill="yellow")
 
     def render_adsb_loop_block(renderer):
         def drawText(draw, width, *_):
             current = get_adsb_loop_render_state()
-            for idx, (position, plane) in enumerate(current):
-                renderer(draw, idx * loop_row_gap, plane, position, width)
+            for idx, row in enumerate(current):
+                renderer(draw, idx * loop_row_gap, *row, width)
 
         return drawText
 
