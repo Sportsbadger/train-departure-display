@@ -10,8 +10,11 @@ from PIL import ImageFont, Image, ImageDraw
 from trains import loadDeparturesForStation
 from adsb import (
     AdsbDataError,
+    AdsbRouteDataError,
     build_detail_text,
+    enrich_aircraft_routes,
     fetch_aircraft_json,
+    fetch_route_lookup_json,
     format_altitude,
     format_heading,
     format_speed,
@@ -353,7 +356,7 @@ def loadAdsbData(adsbConfig):
             float(adsbConfig["fetchTimeout"]),
             adsbConfig["userAgent"],
         )
-        return parse_aircraft(
+        aircraft = parse_aircraft(
             payload,
             float(adsbConfig["homeLat"]),
             float(adsbConfig["homeLon"]),
@@ -362,6 +365,28 @@ def loadAdsbData(adsbConfig):
             adsbConfig["minAltitudeFt"],
             int(adsbConfig["displayCount"]),
         )
+        if not adsbConfig["routeLookupEnabled"] or not aircraft:
+            return aircraft
+
+        try:
+            route_payload = fetch_route_lookup_json(
+                adsbConfig["routeApiUrl"],
+                aircraft,
+                float(adsbConfig["routeFetchTimeout"]),
+                adsbConfig["userAgent"],
+            )
+            return enrich_aircraft_routes(
+                aircraft,
+                route_payload,
+                adsbConfig["routeDisplay"],
+            )
+        except requests.RequestException as err:
+            print("Warning: Failed to fetch ADS-B route data")
+            print(err)
+            return aircraft
+        except AdsbRouteDataError as err:
+            print(f"Warning: Failed to parse ADS-B route data: {err}")
+            return aircraft
     except requests.RequestException as err:
         print("Error: Failed to fetch ADS-B data")
         print(err)

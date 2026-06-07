@@ -8,10 +8,14 @@ sys.path.append(str(PROJECT_ROOT / "src"))
 
 from adsb import (  # noqa: E402
     AdsbDataError,
+    AdsbRouteDataError,
     build_detail_text,
+    enrich_aircraft_routes,
     fetch_aircraft_json,
+    fetch_route_lookup_json,
     format_altitude,
     parse_aircraft,
+    parse_route_lookup,
 )
 
 
@@ -43,6 +47,140 @@ def test_fetch_aircraft_json_sends_configured_user_agent(monkeypatch):
     assert calls["url"] == "http://example.test/readsb/data/aircraft.json"
     assert calls["headers"] == {"User-Agent": "Mozilla/5.0 TestDisplay"}
     assert calls["timeout"] == 2.0
+
+
+def test_fetch_route_lookup_json_posts_callsigns_and_positions(monkeypatch):
+    calls = {}
+
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return []
+
+    def fake_post(url, headers, json, timeout):
+        calls["url"] = url
+        calls["headers"] = headers
+        calls["json"] = json
+        calls["timeout"] = timeout
+        return FakeResponse()
+
+    monkeypatch.setattr("adsb.requests.post", fake_post)
+    aircraft = parse_aircraft(
+        {
+            "aircraft": [
+                {
+                    "hex": "abc123",
+                    "flight": " BAW15 ",
+                    "lat": 51.5,
+                    "lon": -0.1,
+                    "seen": 1,
+                }
+            ]
+        },
+        home_lat=51.5,
+        home_lon=-0.1,
+        max_age_s=30,
+        max_distance_nm=None,
+        min_altitude_ft=None,
+        limit=5,
+    )
+
+    result = fetch_route_lookup_json(
+        "https://api.example.test/api/0/routeset",
+        aircraft,
+        timeout_s=4.0,
+        user_agent="Mozilla/5.0 TestDisplay",
+    )
+
+    assert result == []
+    assert calls["url"] == "https://api.example.test/api/0/routeset"
+    assert calls["headers"] == {
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+        "User-Agent": "Mozilla/5.0 TestDisplay",
+    }
+    assert calls["json"] == {
+        "planes": [{"callsign": "BAW15", "lat": 51.5, "lng": -0.1}]
+    }
+    assert calls["timeout"] == 4.0
+
+
+def test_parse_route_lookup_supports_iata_icao_and_city_routes():
+    payload = [
+        {
+            "callsign": "BAW15",
+            "_airport_codes_iata": "LHR-SIN-SYD",
+            "airport_codes": "EGLL-WSSS-YSSY",
+            "_airports": [
+                {"iata": "LHR", "icao": "EGLL", "location": "London"},
+                {"iata": "SIN", "icao": "WSSS", "location": "Singapore"},
+                {"iata": "SYD", "icao": "YSSY", "location": "Sydney"},
+            ],
+        }
+    ]
+
+    iata_routes = parse_route_lookup(payload, "iata")
+    icao_routes = parse_route_lookup(payload, "icao")
+    city_routes = parse_route_lookup(payload, "city")
+
+    assert iata_routes["BAW15"].origin == "LHR"
+    assert iata_routes["BAW15"].destination == "SYD"
+    assert icao_routes["BAW15"].origin == "EGLL"
+    assert icao_routes["BAW15"].destination == "YSSY"
+    assert city_routes["BAW15"].origin == "London"
+    assert city_routes["BAW15"].destination == "Sydney"
+
+
+def test_enrich_aircraft_routes_adds_route_to_matching_callsign_detail():
+    aircraft = parse_aircraft(
+        {
+            "aircraft": [
+                {
+                    "hex": "abc123",
+                    "flight": "BAW15",
+                    "lat": 51.5,
+                    "lon": -0.1,
+                    "seen": 1,
+                    "t": "A388",
+                },
+                {
+                    "hex": "def456",
+                    "flight": "UNKNOWN",
+                    "lat": 51.6,
+                    "lon": -0.2,
+                    "seen": 1,
+                },
+            ]
+        },
+        home_lat=51.5,
+        home_lon=-0.1,
+        max_age_s=30,
+        max_distance_nm=None,
+        min_altitude_ft=None,
+        limit=5,
+    )
+
+    enriched = enrich_aircraft_routes(
+        aircraft,
+        [
+            {
+                "callsign": " BAW15 ",
+                "_airport_codes_iata": "LHR-SYD",
+            }
+        ],
+        "iata",
+    )
+
+    assert enriched[0].route == "LHR-SYD"
+    assert enriched[1].route == ""
+    assert build_detail_text(enriched[0]).startswith("LHR-SYD  A388")
+
+
+def test_parse_route_lookup_rejects_unsupported_payload_shape():
+    with pytest.raises(AdsbRouteDataError, match="route response"):
+        parse_route_lookup({"callsign": "BAW15"}, "iata")
 
 
 def test_parse_aircraft_sorts_nearest_and_filters_stale_missing_position():

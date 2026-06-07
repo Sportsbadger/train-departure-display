@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from math import atan2, cos, radians, sin, sqrt
 from typing import Any, Mapping
 
@@ -15,6 +15,8 @@ class AdsbAircraft:
 
     hex: str
     flight: str
+    latitude: float
+    longitude: float
     distance_nm: float
     bearing_deg: int
     altitude_ft: int | None
@@ -25,6 +27,15 @@ class AdsbAircraft:
     aircraft_type: str
     registration: str
     seen_seconds: float
+    origin: str = ""
+    destination: str = ""
+
+    @property
+    def route(self) -> str:
+        """Return a compact origin-destination route label when known."""
+        if not self.origin or not self.destination:
+            return ""
+        return f"{self.origin}-{self.destination}"
 
     @property
     def display_name(self) -> str:
@@ -38,6 +49,19 @@ class AdsbAircraft:
 
 class AdsbDataError(ValueError):
     """Raised when ADS-B data cannot be parsed or validated."""
+
+
+class AdsbRouteDataError(ValueError):
+    """Raised when ADS-B route lookup data cannot be parsed."""
+
+
+@dataclass(frozen=True)
+class AdsbRoute:
+    """Origin and destination route data for an aircraft callsign."""
+
+    callsign: str
+    origin: str
+    destination: str
 
 
 def fetch_aircraft_json(
@@ -66,6 +90,121 @@ def fetch_aircraft_json(
     if not isinstance(payload, Mapping):
         raise AdsbDataError("ADS-B response must be a JSON object")
     return payload
+
+
+def fetch_route_lookup_json(
+    route_url: str,
+    aircraft: list[AdsbAircraft],
+    timeout_s: float,
+    user_agent: str,
+) -> Any:
+    """Fetch route data from a tar1090-compatible routeset endpoint.
+
+    Args:
+        route_url: HTTP URL for the route lookup endpoint.
+        aircraft: Aircraft to include in the batched lookup request.
+        timeout_s: Maximum request time in seconds.
+        user_agent: HTTP User-Agent header for reverse proxies.
+
+    Returns:
+        Decoded JSON payload.
+
+    Raises:
+        requests.RequestException: If the HTTP request fails or times out.
+    """
+    planes = [
+        {
+            "callsign": aircraft_item.flight,
+            "lat": aircraft_item.latitude,
+            "lng": aircraft_item.longitude,
+        }
+        for aircraft_item in aircraft
+        if aircraft_item.flight
+    ]
+    if not planes:
+        return []
+
+    headers = {
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+        "User-Agent": user_agent,
+    }
+    response = requests.post(
+        route_url,
+        headers=headers,
+        json={"planes": planes},
+        timeout=timeout_s,
+    )
+    response.raise_for_status()
+    return response.json()
+
+
+def enrich_aircraft_routes(
+    aircraft: list[AdsbAircraft],
+    route_payload: Any,
+    route_display: str,
+) -> list[AdsbAircraft]:
+    """Add route origin and destination to matching aircraft.
+
+    Args:
+        aircraft: Parsed aircraft from readsb/tar1090 aircraft JSON.
+        route_payload: Decoded tar1090-compatible route lookup response.
+        route_display: Route display format: ``iata``, ``icao``, or ``city``.
+
+    Returns:
+        Aircraft with origin/destination populated where route data is available.
+
+    Raises:
+        AdsbRouteDataError: If the route payload has an unsupported shape.
+    """
+    routes = parse_route_lookup(route_payload, route_display)
+    if not routes:
+        return aircraft
+
+    enriched = []
+    for aircraft_item in aircraft:
+        route = routes.get(_normalize_callsign(aircraft_item.flight))
+        if route is None:
+            enriched.append(aircraft_item)
+            continue
+        enriched.append(
+            replace(
+                aircraft_item,
+                origin=route.origin,
+                destination=route.destination,
+            )
+        )
+    return enriched
+
+
+def parse_route_lookup(route_payload: Any, route_display: str) -> dict[str, AdsbRoute]:
+    """Parse tar1090-compatible route lookup JSON by callsign.
+
+    Args:
+        route_payload: Decoded route lookup response.
+        route_display: Route display format: ``iata``, ``icao``, or ``city``.
+
+    Returns:
+        Mapping of normalized callsign to route data.
+
+    Raises:
+        AdsbRouteDataError: If the route payload has an unsupported shape.
+    """
+    if route_payload in (None, ""):
+        return {}
+    route_display = route_display.lower()
+    if not isinstance(route_payload, list):
+        raise AdsbRouteDataError("ADS-B route response must be a list")
+
+    routes: dict[str, AdsbRoute] = {}
+    for item in route_payload:
+        if not isinstance(item, Mapping):
+            continue
+        route = _parse_route_item(item, route_display)
+        if route is None:
+            continue
+        routes[_normalize_callsign(route.callsign)] = route
+    return routes
 
 
 def parse_aircraft(
@@ -149,6 +288,7 @@ def format_heading(degrees: int | None) -> str:
 def build_detail_text(aircraft: AdsbAircraft) -> str:
     """Build the scrolling detail line for an aircraft."""
     parts = [
+        aircraft.route,
         aircraft.aircraft_type,
         aircraft.registration,
         format_heading(aircraft.track_deg),
@@ -158,6 +298,62 @@ def build_detail_text(aircraft: AdsbAircraft) -> str:
     if aircraft.squawk:
         parts.append(f"sq {aircraft.squawk}")
     return "  ".join(part for part in parts if part)
+
+
+def _parse_route_item(
+    item: Mapping[str, Any],
+    route_display: str,
+) -> AdsbRoute | None:
+    callsign = _clean_text(item.get("callsign"))
+    if not callsign:
+        return None
+
+    origin, destination = _route_endpoints(item, route_display)
+    if not origin or not destination:
+        return None
+
+    return AdsbRoute(callsign=callsign, origin=origin, destination=destination)
+
+
+def _route_endpoints(
+    item: Mapping[str, Any],
+    route_display: str,
+) -> tuple[str, str]:
+    if route_display == "city":
+        return _airport_route_endpoints(item, "location")
+    if route_display == "icao":
+        return _split_route_codes(_clean_text(item.get("airport_codes")))
+    return _split_route_codes(_clean_text(item.get("_airport_codes_iata")))
+
+
+def _airport_route_endpoints(
+    item: Mapping[str, Any],
+    key: str,
+) -> tuple[str, str]:
+    airports = item.get("_airports")
+    if not isinstance(airports, list) or len(airports) < 2:
+        return "", ""
+
+    first = airports[0]
+    last = airports[-1]
+    if not isinstance(first, Mapping) or not isinstance(last, Mapping):
+        return "", ""
+
+    return _clean_text(first.get(key)), _clean_text(last.get(key))
+
+
+def _split_route_codes(route_codes: str) -> tuple[str, str]:
+    if not route_codes or "-" not in route_codes:
+        return "", ""
+
+    parts = [part.strip() for part in route_codes.split("-") if part.strip()]
+    if len(parts) < 2:
+        return "", ""
+    return parts[0], parts[-1]
+
+
+def _normalize_callsign(callsign: str) -> str:
+    return "".join(callsign.upper().split())
 
 
 def _parse_aircraft_item(
@@ -180,6 +376,8 @@ def _parse_aircraft_item(
     return AdsbAircraft(
         hex=hex_value,
         flight=_clean_text(item.get("flight")),
+        latitude=lat,
+        longitude=lon,
         distance_nm=distance_nm,
         bearing_deg=bearing_deg,
         altitude_ft=_parse_altitude(item.get("alt_baro", item.get("alt_geom"))),

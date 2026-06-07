@@ -138,6 +138,24 @@ def loadConfig():
     )
     data["adsb"]["maxDistanceNm"] = _env_optional_float("adsbMaxDistanceNm")
     data["adsb"]["minAltitudeFt"] = _env_optional_int("adsbMinAltitudeFt")
+    data["adsb"]["routeLookupEnabled"] = _env_bool(
+        "adsbRouteLookupEnabled",
+        False,
+    )
+    data["adsb"]["routeApiUrl"] = (
+        os.getenv("adsbRouteApiUrl")
+        or "https://api.adsb.lol/api/0/routeset"
+    )
+    data["adsb"]["routeFetchTimeout"] = _env_float(
+        "adsbRouteFetchTimeout",
+        4.0,
+        minimum=0.1,
+    )
+    data["adsb"]["routeDisplay"] = (
+        os.getenv("adsbRouteDisplay") or "iata"
+    ).lower()
+    if data["adsb"]["routeDisplay"] not in ("iata", "icao", "city"):
+        data["adsb"]["routeDisplay"] = "iata"
 
     data["planeAlert"]["enabled"] = _env_bool("planeAlertEnabled", False)
     data["planeAlert"]["sourceUrl"] = (

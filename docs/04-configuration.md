@@ -52,8 +52,12 @@ ADS-B support is disabled by default. When enabled, the display can alternate be
 | `adsbMaxAgeSeconds` | `30` (ignore aircraft not seen within this many seconds)
 | `adsbMaxDistanceNm` | `100` (optional maximum distance in nautical miles; blank means no distance cap)
 | `adsbMinAltitudeFt` | `1000` (optional minimum altitude in feet; blank means no altitude floor)
+| `adsbRouteLookupEnabled` | `False` (enables a second-stage tar1090-compatible route lookup for origin/destination)
+| `adsbRouteApiUrl` | `https://api.adsb.lol/api/0/routeset` (route lookup endpoint accepting a `planes` JSON POST body)
+| `adsbRouteFetchTimeout` | `4` (HTTP timeout in seconds for the route lookup request)
+| `adsbRouteDisplay` | `iata` (route label format: `iata`, `icao`, or `city`)
 
-The ADS-B board skips aircraft without positions, because nearest-aircraft sorting requires latitude and longitude. The lower ADS-B rows rotate using `loopDepartureInterval`. ADS-B JSON is refreshed in the background and cached before/while the mode is displayed, so slow reads do not block OLED animation or mode transitions. Network failures and malformed ADS-B JSON are handled separately from train loading so the train board can continue to run. The default `adsbUserAgent` avoids reverse proxy bot blocks that reject the default Python requests User-Agent.
+The ADS-B board skips aircraft without positions, because nearest-aircraft sorting requires latitude and longitude. When `adsbRouteLookupEnabled` is true, the app keeps the existing readsb/tar1090 aircraft JSON as the live aircraft source, then POSTs the displayed aircraft callsigns and positions to the configured `adsbRouteApiUrl`. Returned origin/destination data is best-effort and appears at the start of the highlighted aircraft detail line when available. The lower ADS-B rows rotate using `loopDepartureInterval`. ADS-B JSON is refreshed in the background and cached before/while the mode is displayed, so slow reads do not block OLED animation or mode transitions. Network failures and malformed ADS-B JSON are handled separately from train loading so the train board can continue to run. The default `adsbUserAgent` avoids reverse proxy bot blocks that reject the default Python requests User-Agent.
 
 ## Plane-Alert mode (optional)
 
