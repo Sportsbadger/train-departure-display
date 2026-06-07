@@ -762,8 +762,7 @@ def drawAdsbSignage(device, width, height, aircraft):
     width = virtualViewport.width
     firstFont = fontBold if config['firstDepartureBold'] else font
 
-    right_info_width = int(font.getlength("100nm NW 000 999kt"))
-    altitude_width = int(font.getlength("00000ft"))
+    right_info_width = int(font.getlength("999kt 100nm 00000ft"))
     loop_row_gap = 12
     loop_block_height = loop_row_gap * 2
     loop_frame_interval = 0.02
@@ -771,7 +770,7 @@ def drawAdsbSignage(device, width, height, aircraft):
     featured_index = select_featured_aircraft_index(
         aircraft,
         time.monotonic(),
-        float(config["loopDepartureInterval"]),
+        float(config["loopDepartureInterval"]) * 1.5,
     )
     featured_aircraft = aircraft[featured_index]
 
@@ -813,10 +812,6 @@ def drawAdsbSignage(device, width, height, aircraft):
         )
         draw.bitmap((width - text_width, y_offset), bitmap, fill="yellow")
 
-    def draw_loop_altitude(draw, y_offset, plane, _position, *_):
-        _, _, bitmap = cachedBitmapText(format_altitude(plane.altitude_ft), font)
-        draw.bitmap((0, y_offset), bitmap, fill="yellow")
-
     def render_adsb_loop_block(renderer):
         def drawText(draw, width, *_):
             current = get_adsb_loop_render_state()
@@ -827,7 +822,7 @@ def drawAdsbSignage(device, width, height, aircraft):
 
     if len(loop_departures) > 0:
         rowThreeA = snapshot(
-            width - right_info_width - altitude_width,
+            width - right_info_width,
             loop_block_height,
             render_adsb_loop_block(draw_loop_aircraft),
             interval=loop_frame_interval,
@@ -838,13 +833,6 @@ def drawAdsbSignage(device, width, height, aircraft):
             render_adsb_loop_block(draw_loop_track),
             interval=loop_frame_interval,
         )
-        rowThreeC = snapshot(
-            altitude_width,
-            loop_block_height,
-            render_adsb_loop_block(draw_loop_altitude),
-            interval=loop_frame_interval,
-        )
-
     rowTime = snapshot(width, 14, renderTime, interval=0.1)
 
     if len(virtualViewport._hotspots) > 0:
@@ -863,10 +851,6 @@ def drawAdsbSignage(device, width, height, aircraft):
     if len(loop_departures) > 0:
         virtualViewport.add_hotspot(rowThreeA, (0, 24))
         virtualViewport.add_hotspot(rowThreeB, (width - right_info_width, 24))
-        virtualViewport.add_hotspot(
-            rowThreeC,
-            (width - right_info_width - altitude_width, 24),
-        )
 
     virtualViewport.add_hotspot(rowTime, (0, 50))
 

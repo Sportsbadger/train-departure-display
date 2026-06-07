@@ -358,9 +358,9 @@ def build_loop_aircraft_text(aircraft: AdsbAircraft, position: int) -> str:
 def build_loop_info_text(aircraft: AdsbAircraft) -> str:
     """Build the lower-row right text for a secondary aircraft."""
     parts = [
-        f"{aircraft.distance_nm:.0f}nm",
-        format_heading(aircraft.track_deg),
         format_speed(aircraft.ground_speed_kt),
+        f"{aircraft.distance_nm:.0f}nm",
+        format_altitude(aircraft.altitude_ft),
     ]
     return " ".join(part for part in parts if part)
 

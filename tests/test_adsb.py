@@ -259,6 +259,7 @@ def test_enrich_aircraft_routes_adds_route_to_matching_callsign_detail():
                     "desc": "Airbus A380",
                     "gs": 450,
                     "track": 90,
+                    "alt_baro": 38000,
                     "tas": 488,
                     "mach": 0.85,
                     "baro_rate": 128,
@@ -295,7 +296,7 @@ def test_enrich_aircraft_routes_adds_route_to_matching_callsign_detail():
     assert enriched[0].route == "LHR-SYD"
     assert enriched[1].route == ""
     assert build_summary_text(enriched[0]) == (
-        "BAW15  LHR-SYD    G-XLEA  A388  488kt  0nm  ----ft"
+        "BAW15  LHR-SYD    G-XLEA  A388  488kt  0nm  38000ft"
     )
     assert build_detail_text(enriched[0]) == (
         "Airbus A380  brg 000deg  E 090  gs 450kt  tas 488kt  "
@@ -474,6 +475,7 @@ def test_loop_aircraft_text_places_type_left_and_distance_right():
                     "t": "A388",
                     "gs": 450,
                     "track": 90,
+                    "alt_baro": 38000,
                 }
             ]
         },
@@ -486,7 +488,7 @@ def test_loop_aircraft_text_places_type_left_and_distance_right():
     )[0]
 
     assert build_loop_aircraft_text(aircraft, 2) == "2nd  BAW15  A388"
-    assert build_loop_info_text(aircraft) == "0nm E 090 450kt"
+    assert build_loop_info_text(aircraft) == "450kt 0nm 38000ft"
 
 
 def test_format_altitude_handles_unknown_and_ground():
