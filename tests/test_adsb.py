@@ -59,6 +59,9 @@ def test_fetch_route_lookup_json_posts_callsigns_and_positions(monkeypatch):
         def raise_for_status(self):
             return None
 
+        status_code = 200
+        text = "[]"
+
         def json(self):
             return []
 
@@ -108,6 +111,46 @@ def test_fetch_route_lookup_json_posts_callsigns_and_positions(monkeypatch):
         "planes": [{"callsign": "BAW15", "lat": 51.5, "lng": -0.1}]
     }
     assert calls["timeout"] == 4.0
+
+
+def test_fetch_route_lookup_json_raises_route_error_for_non_json(monkeypatch):
+    class FakeResponse:
+        status_code = 200
+        text = "main"
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            raise ValueError("Expecting value: line 1 column 1 (char 0)")
+
+    monkeypatch.setattr("adsb.requests.post", lambda *_, **__: FakeResponse())
+
+    with pytest.raises(AdsbRouteDataError, match="not JSON"):
+        fetch_route_lookup_json(
+            "https://api.example.test/api/0/routeset",
+            parse_aircraft(
+                {
+                    "aircraft": [
+                        {
+                            "hex": "abc123",
+                            "flight": "BAW15",
+                            "lat": 51.5,
+                            "lon": -0.1,
+                            "seen": 1,
+                        }
+                    ]
+                },
+                home_lat=51.5,
+                home_lon=-0.1,
+                max_age_s=30,
+                max_distance_nm=None,
+                min_altitude_ft=None,
+                limit=5,
+            ),
+            timeout_s=4.0,
+            user_agent="Mozilla/5.0 TestDisplay",
+        )
 
 
 def test_parse_route_lookup_supports_iata_icao_and_city_routes():
@@ -171,9 +214,12 @@ def test_enrich_aircraft_routes_adds_route_to_matching_callsign_detail():
                     "t": "A388",
                     "r": "G-XLEA",
                     "desc": "Airbus A380",
+                    "gs": 450,
+                    "track": 90,
                     "tas": 488,
                     "mach": 0.85,
                     "baro_rate": 128,
+                    "squawk": "1234",
                 },
                 {
                     "hex": "def456",
@@ -205,9 +251,12 @@ def test_enrich_aircraft_routes_adds_route_to_matching_callsign_detail():
 
     assert enriched[0].route == "LHR-SYD"
     assert enriched[1].route == ""
-    assert build_summary_text(enriched[0]).startswith("BAW15  LHR-SYD")
+    assert build_summary_text(enriched[0]) == (
+        "BAW15  LHR-SYD  G-XLEA  A388  488kt  0nm  ----ft"
+    )
     assert build_detail_text(enriched[0]) == (
-        "G-XLEA  A388  Airbus A380  tas 488kt  mach 0.85  climb 128fpm"
+        "Airbus A380  brg 000deg  E 090  gs 450kt  tas 488kt  "
+        "mach 0.85  climb 128fpm  sq 1234  ABC123  seen 1s"
     )
 
 

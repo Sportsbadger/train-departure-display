@@ -114,6 +114,7 @@ def fetch_route_lookup_json(
 
     Raises:
         requests.RequestException: If the HTTP request fails or times out.
+        AdsbRouteDataError: If the response body is not JSON.
     """
     planes = [
         {
@@ -139,7 +140,14 @@ def fetch_route_lookup_json(
         timeout=timeout_s,
     )
     response.raise_for_status()
-    return response.json()
+    try:
+        return response.json()
+    except ValueError as err:
+        body_preview = response.text[:120].strip() or "<empty response>"
+        raise AdsbRouteDataError(
+            "ADS-B route response was not JSON "
+            f"(HTTP {response.status_code}): {body_preview}"
+        ) from err
 
 
 def enrich_aircraft_routes(
@@ -305,16 +313,25 @@ def select_secondary_aircraft(
 
 def build_summary_text(aircraft: AdsbAircraft) -> str:
     """Build the top-row summary line for an aircraft."""
-    parts = [aircraft.display_name]
-    if aircraft.route:
-        parts.append(aircraft.route)
-    parts.extend(
-        [
-            f"{aircraft.distance_nm:.0f}nm",
-            format_altitude(aircraft.altitude_ft),
-        ]
-    )
-    return "  ".join(parts)
+    parts = [
+        aircraft.display_name,
+        aircraft.route,
+        aircraft.registration,
+        aircraft.aircraft_type,
+        format_summary_speed(aircraft),
+        f"{aircraft.distance_nm:.0f}nm",
+        format_altitude(aircraft.altitude_ft),
+    ]
+    return "  ".join(part for part in parts if part)
+
+
+def format_summary_speed(aircraft: AdsbAircraft) -> str:
+    """Format the preferred speed for the top-row aircraft summary."""
+    if aircraft.true_air_speed_kt is not None:
+        return f"{aircraft.true_air_speed_kt}kt"
+    if aircraft.ground_speed_kt is not None:
+        return f"{aircraft.ground_speed_kt}kt"
+    return ""
 
 
 def format_true_air_speed(speed_kt: int | None) -> str:
@@ -347,6 +364,13 @@ def format_speed(speed_kt: int | None) -> str:
     return f"{speed_kt}kt"
 
 
+def format_ground_speed(speed_kt: int | None) -> str:
+    """Format ground speed for the scrolling detail line."""
+    if speed_kt is None:
+        return ""
+    return f"gs {speed_kt}kt"
+
+
 def format_vertical_rate(vertical_rate_fpm: int | None) -> str:
     """Format vertical rate with an arrow-like prefix for OLED fonts."""
     if vertical_rate_fpm is None:
@@ -365,18 +389,30 @@ def format_heading(degrees: int | None) -> str:
     return f"{_compass_point(degrees)} {degrees:03d}"
 
 
+def format_bearing(degrees: int) -> str:
+    """Format bearing from receiver to aircraft."""
+    return f"brg {degrees:03d}deg"
+
+
+def format_seen(seconds: float) -> str:
+    """Format aircraft seen age."""
+    return f"seen {seconds:.0f}s"
+
+
 def build_detail_text(aircraft: AdsbAircraft) -> str:
     """Build the scrolling detail line for an aircraft."""
     parts = [
-        aircraft.registration,
-        aircraft.aircraft_type,
         aircraft.description,
+        format_bearing(aircraft.bearing_deg),
+        format_heading(aircraft.track_deg),
+        format_ground_speed(aircraft.ground_speed_kt),
         format_true_air_speed(aircraft.true_air_speed_kt),
         format_mach(aircraft.mach),
         format_vertical_rate(aircraft.vertical_rate_fpm),
+        f"sq {aircraft.squawk}" if aircraft.squawk else "",
+        aircraft.hex.upper(),
+        format_seen(aircraft.seen_seconds),
     ]
-    if aircraft.squawk:
-        parts.append(f"sq {aircraft.squawk}")
     return "  ".join(part for part in parts if part)
 
 

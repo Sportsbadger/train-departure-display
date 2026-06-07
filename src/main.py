@@ -158,7 +158,7 @@ adsbLoopPauseCount = 0
 adsbLoopHasElevated = 0
 
 
-def renderStations(stations):
+def renderStations(stations, initial_pause_frames=20):
     pixels_left = 1
     pixels_up = 0
     has_elevated = False
@@ -189,7 +189,7 @@ def renderStations(stations):
         draw.bitmap((0, txt_height - pixels_up), bitmap, fill="yellow")
         if pixels_up >= txt_height:
             pause_count += 1
-            if pause_count > 20:
+            if pause_count > initial_pause_frames:
                 has_elevated = True
                 pixels_up = 0
                 pause_count = 0
@@ -773,7 +773,10 @@ def drawAdsbSignage(device, width, height, aircraft):
     rowTwoB = snapshot(
         width,
         10,
-        renderStations(build_detail_text(featured_aircraft)),
+        renderStations(
+            build_detail_text(featured_aircraft),
+            initial_pause_frames=50,
+        ),
         interval=loop_frame_interval,
     )
 
