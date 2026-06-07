@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from math import atan2, cos, radians, sin, sqrt
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 
 import requests
 
@@ -15,16 +15,30 @@ class AdsbAircraft:
 
     hex: str
     flight: str
+    latitude: float
+    longitude: float
     distance_nm: float
     bearing_deg: int
     altitude_ft: int | None
     ground_speed_kt: int | None
+    true_air_speed_kt: int | None
+    mach: float | None
     track_deg: int | None
     vertical_rate_fpm: int | None
     squawk: str
     aircraft_type: str
     registration: str
+    description: str
     seen_seconds: float
+    origin: str = ""
+    destination: str = ""
+
+    @property
+    def route(self) -> str:
+        """Return a compact origin-destination route label when known."""
+        if not self.origin or not self.destination:
+            return ""
+        return f"{self.origin}-{self.destination}"
 
     @property
     def display_name(self) -> str:
@@ -38,6 +52,19 @@ class AdsbAircraft:
 
 class AdsbDataError(ValueError):
     """Raised when ADS-B data cannot be parsed or validated."""
+
+
+class AdsbRouteDataError(ValueError):
+    """Raised when ADS-B route lookup data cannot be parsed."""
+
+
+@dataclass(frozen=True)
+class AdsbRoute:
+    """Origin and destination route data for an aircraft callsign."""
+
+    callsign: str
+    origin: str
+    destination: str
 
 
 def fetch_aircraft_json(
@@ -66,6 +93,131 @@ def fetch_aircraft_json(
     if not isinstance(payload, Mapping):
         raise AdsbDataError("ADS-B response must be a JSON object")
     return payload
+
+
+def fetch_route_lookup_json(
+    route_url: str,
+    aircraft: list[AdsbAircraft],
+    timeout_s: float,
+    user_agent: str,
+) -> Any:
+    """Fetch route data from a tar1090-compatible routeset endpoint.
+
+    Args:
+        route_url: HTTP URL for the route lookup endpoint.
+        aircraft: Aircraft to include in the batched lookup request.
+        timeout_s: Maximum request time in seconds.
+        user_agent: HTTP User-Agent header for reverse proxies.
+
+    Returns:
+        Decoded JSON payload.
+
+    Raises:
+        requests.RequestException: If the HTTP request fails or times out.
+        AdsbRouteDataError: If the response body is not JSON.
+    """
+    planes = [
+        {
+            "callsign": aircraft_item.flight,
+            "lat": aircraft_item.latitude,
+            "lng": aircraft_item.longitude,
+        }
+        for aircraft_item in aircraft
+        if aircraft_item.flight
+    ]
+    if not planes:
+        return []
+
+    headers = {
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+        "User-Agent": user_agent,
+    }
+    response = requests.post(
+        route_url,
+        headers=headers,
+        json={"planes": planes},
+        timeout=timeout_s,
+    )
+    response.raise_for_status()
+    if not response.content and not response.text:
+        return []
+
+    try:
+        return response.json()
+    except ValueError as err:
+        body_preview = response.text[:120].strip() or "<empty response>"
+        raise AdsbRouteDataError(
+            "ADS-B route response was not JSON "
+            f"(HTTP {response.status_code}): {body_preview}"
+        ) from err
+
+
+def enrich_aircraft_routes(
+    aircraft: list[AdsbAircraft],
+    route_payload: Any,
+    route_display: str,
+) -> list[AdsbAircraft]:
+    """Add route origin and destination to matching aircraft.
+
+    Args:
+        aircraft: Parsed aircraft from readsb/tar1090 aircraft JSON.
+        route_payload: Decoded tar1090-compatible route lookup response.
+        route_display: Route display format: ``iata``, ``icao``, or ``city``.
+
+    Returns:
+        Aircraft with origin/destination populated where route data is available.
+
+    Raises:
+        AdsbRouteDataError: If the route payload has an unsupported shape.
+    """
+    routes = parse_route_lookup(route_payload, route_display)
+    if not routes:
+        return aircraft
+
+    enriched = []
+    for aircraft_item in aircraft:
+        route = routes.get(_normalize_callsign(aircraft_item.flight))
+        if route is None:
+            enriched.append(aircraft_item)
+            continue
+        enriched.append(
+            replace(
+                aircraft_item,
+                origin=route.origin,
+                destination=route.destination,
+            )
+        )
+    return enriched
+
+
+def parse_route_lookup(route_payload: Any, route_display: str) -> dict[str, AdsbRoute]:
+    """Parse tar1090-compatible route lookup JSON by callsign.
+
+    Args:
+        route_payload: Decoded route lookup response.
+        route_display: Route display format: ``iata``, ``icao``, or ``city``.
+
+    Returns:
+        Mapping of normalized callsign to route data.
+
+    Raises:
+        AdsbRouteDataError: If the route payload has an unsupported shape.
+    """
+    if route_payload in (None, ""):
+        return {}
+    route_display = route_display.lower()
+    route_items = _route_items(route_payload)
+
+    routes: dict[str, AdsbRoute] = {}
+    for item in route_items:
+        if not isinstance(item, Mapping):
+            continue
+        route = _parse_route_item(item, route_display)
+        if route is None:
+            continue
+        routes[_normalize_callsign(route.callsign)] = route
+    return routes
 
 
 def parse_aircraft(
@@ -114,6 +266,137 @@ def parse_aircraft(
     return sorted(filtered, key=lambda item: item.distance_nm)[:limit]
 
 
+def select_featured_aircraft_index(
+    aircraft: Sequence[AdsbAircraft],
+    now: float,
+    interval_s: float,
+) -> int:
+    """Select which aircraft should receive the full-detail display.
+
+    Args:
+        aircraft: Displayable aircraft ordered by distance.
+        now: Monotonic time in seconds.
+        interval_s: Seconds to keep each aircraft highlighted.
+
+    Returns:
+        Zero-based aircraft index, or 0 for an empty sequence.
+    """
+    if not aircraft:
+        return 0
+
+    safe_interval = max(interval_s, 1.0)
+    return int(now // safe_interval) % len(aircraft)
+
+
+def select_secondary_aircraft(
+    aircraft: Sequence[AdsbAircraft],
+    featured_index: int,
+    window: int = 2,
+) -> list[tuple[int, AdsbAircraft]]:
+    """Return aircraft immediately after the highlighted aircraft.
+
+    Args:
+        aircraft: Displayable aircraft ordered by distance.
+        featured_index: Zero-based index currently shown with full details.
+        window: Maximum number of following aircraft to return.
+
+    Returns:
+        One-based original aircraft positions and aircraft records for summary rows.
+    """
+    if window <= 0:
+        return []
+
+    start = featured_index + 1
+    end = start + window
+    return [
+        (idx + 1, aircraft_item)
+        for idx, aircraft_item in enumerate(aircraft[start:end], start=start)
+    ]
+
+
+def build_summary_left_text(aircraft: AdsbAircraft) -> str:
+    """Build the left-side top-row summary text."""
+    return "  ".join(
+        part for part in [aircraft.display_name, aircraft.route] if part
+    )
+
+
+def build_summary_right_text(aircraft: AdsbAircraft) -> str:
+    """Build the right-side top-row summary text."""
+    parts = [
+        aircraft.registration,
+        aircraft.aircraft_type,
+        format_summary_speed(aircraft),
+        f"{aircraft.distance_nm:.0f}nm",
+        format_altitude(aircraft.altitude_ft),
+    ]
+    return "  ".join(part for part in parts if part)
+
+
+def build_summary_text(aircraft: AdsbAircraft) -> str:
+    """Build the complete top-row summary line for an aircraft."""
+    return "    ".join(
+        part
+        for part in [
+            build_summary_left_text(aircraft),
+            build_summary_right_text(aircraft),
+        ]
+        if part
+    )
+
+
+def build_loop_aircraft_text(aircraft: AdsbAircraft, position: int) -> str:
+    """Build the lower-row left text for a secondary aircraft."""
+    parts = [
+        ordinal_text(position),
+        aircraft.display_name,
+        aircraft.aircraft_type,
+    ]
+    return "  ".join(part for part in parts if part)
+
+
+def build_loop_info_text(aircraft: AdsbAircraft) -> str:
+    """Build the lower-row right text for a secondary aircraft."""
+    parts = [
+        format_speed(aircraft.ground_speed_kt),
+        f"{aircraft.distance_nm:.0f}nm",
+        format_altitude(aircraft.altitude_ft),
+    ]
+    return " ".join(part for part in parts if part)
+
+
+def ordinal_text(value: int) -> str:
+    """Return the ordinal suffix representation for a positive integer."""
+    if 10 <= value % 100 <= 20:
+        suffix = "th"
+    else:
+        suffix = {1: "st", 2: "nd", 3: "rd"}.get(value % 10, "th")
+    return f"{value}{suffix}"
+
+
+def format_summary_speed(aircraft: AdsbAircraft) -> str:
+    """Format the preferred speed for the top-row aircraft summary."""
+    if aircraft.true_air_speed_kt is not None:
+        return f"{aircraft.true_air_speed_kt}kt"
+    if aircraft.ground_speed_kt is not None:
+        return f"{aircraft.ground_speed_kt}kt"
+    return ""
+
+
+def format_true_air_speed(speed_kt: int | None) -> str:
+    """Format true airspeed for the scrolling detail line."""
+    if speed_kt is None:
+        return ""
+    return f"tas {speed_kt}kt"
+
+
+def format_mach(mach: float | None) -> str:
+    """Format Mach number for the scrolling detail line."""
+    if mach is None:
+        return ""
+    return f"mach {mach:.2f}"
+
+
 def format_altitude(altitude_ft: int | None) -> str:
     """Format altitude for the compact display."""
     if altitude_ft is None:
@@ -130,9 +413,18 @@ def format_speed(speed_kt: int | None) -> str:
     return f"{speed_kt}kt"
 
 
+def format_ground_speed(speed_kt: int | None) -> str:
+    """Format ground speed for the scrolling detail line."""
+    if speed_kt is None:
+        return ""
+    return f"gs {speed_kt}kt"
+
+
 def format_vertical_rate(vertical_rate_fpm: int | None) -> str:
     """Format vertical rate with an arrow-like prefix for OLED fonts."""
-    if vertical_rate_fpm is None or vertical_rate_fpm == 0:
+    if vertical_rate_fpm is None:
+        return ""
+    if vertical_rate_fpm == 0:
         return "level"
     if vertical_rate_fpm > 0:
         return f"climb {vertical_rate_fpm}fpm"
@@ -146,18 +438,112 @@ def format_heading(degrees: int | None) -> str:
     return f"{_compass_point(degrees)} {degrees:03d}"
 
 
+def format_bearing(degrees: int) -> str:
+    """Format bearing from receiver to aircraft."""
+    return f"brg {degrees:03d}deg"
+
+
+def format_seen(seconds: float) -> str:
+    """Format aircraft seen age."""
+    return f"seen {seconds:.0f}s"
+
+
 def build_detail_text(aircraft: AdsbAircraft) -> str:
     """Build the scrolling detail line for an aircraft."""
     parts = [
-        aircraft.aircraft_type,
-        aircraft.registration,
+        aircraft.description,
+        format_bearing(aircraft.bearing_deg),
         format_heading(aircraft.track_deg),
-        format_speed(aircraft.ground_speed_kt),
+        format_ground_speed(aircraft.ground_speed_kt),
+        format_true_air_speed(aircraft.true_air_speed_kt),
+        format_mach(aircraft.mach),
         format_vertical_rate(aircraft.vertical_rate_fpm),
+        f"sq {aircraft.squawk}" if aircraft.squawk else "",
+        aircraft.hex.upper(),
+        format_seen(aircraft.seen_seconds),
     ]
-    if aircraft.squawk:
-        parts.append(f"sq {aircraft.squawk}")
     return "  ".join(part for part in parts if part)
+
+
+def _route_items(route_payload: Any) -> list[Any]:
+    if isinstance(route_payload, list):
+        return route_payload
+    if not isinstance(route_payload, Mapping):
+        raise AdsbRouteDataError("ADS-B route response must be a list")
+
+    for key in ("routes", "data", "results", "response"):
+        value = route_payload.get(key)
+        if isinstance(value, list):
+            return value
+
+    raise AdsbRouteDataError("ADS-B route response must be a list")
+
+
+def _parse_route_item(
+    item: Mapping[str, Any],
+    route_display: str,
+) -> AdsbRoute | None:
+    callsign = _clean_text(item.get("callsign"))
+    if not callsign:
+        return None
+
+    origin, destination = _route_endpoints(item, route_display)
+    if not origin or not destination:
+        return None
+
+    return AdsbRoute(callsign=callsign, origin=origin, destination=destination)
+
+
+def _route_endpoints(
+    item: Mapping[str, Any],
+    route_display: str,
+) -> tuple[str, str]:
+    if route_display == "city":
+        return _airport_route_endpoints(item, "location")
+    if route_display == "icao":
+        origin, destination = _split_route_codes(
+            _clean_text(item.get("airport_codes")),
+        )
+        if origin and destination:
+            return origin, destination
+        return _airport_route_endpoints(item, "icao")
+
+    origin, destination = _split_route_codes(
+        _clean_text(item.get("_airport_codes_iata")),
+    )
+    if origin and destination:
+        return origin, destination
+    return _airport_route_endpoints(item, "iata")
+
+
+def _airport_route_endpoints(
+    item: Mapping[str, Any],
+    key: str,
+) -> tuple[str, str]:
+    airports = item.get("_airports")
+    if not isinstance(airports, list) or len(airports) < 2:
+        return "", ""
+
+    first = airports[0]
+    last = airports[-1]
+    if not isinstance(first, Mapping) or not isinstance(last, Mapping):
+        return "", ""
+
+    return _clean_text(first.get(key)), _clean_text(last.get(key))
+
+
+def _split_route_codes(route_codes: str) -> tuple[str, str]:
+    if not route_codes or "-" not in route_codes:
+        return "", ""
+
+    parts = [part.strip() for part in route_codes.split("-") if part.strip()]
+    if len(parts) < 2:
+        return "", ""
+    return parts[0], parts[-1]
+
+
+def _normalize_callsign(callsign: str) -> str:
+    return "".join(callsign.upper().split())
 
 
 def _parse_aircraft_item(
@@ -180,15 +566,20 @@ def _parse_aircraft_item(
     return AdsbAircraft(
         hex=hex_value,
         flight=_clean_text(item.get("flight")),
+        latitude=lat,
+        longitude=lon,
         distance_nm=distance_nm,
         bearing_deg=bearing_deg,
         altitude_ft=_parse_altitude(item.get("alt_baro", item.get("alt_geom"))),
         ground_speed_kt=_optional_int(item.get("gs")),
+        true_air_speed_kt=_optional_int(item.get("tas")),
+        mach=_optional_float(item.get("mach")),
         track_deg=_optional_int(item.get("track")),
         vertical_rate_fpm=_optional_int(item.get("baro_rate", item.get("geom_rate"))),
         squawk=_clean_text(item.get("squawk")),
         aircraft_type=_clean_text(item.get("t")),
         registration=_clean_text(item.get("r")),
+        description=_clean_text(item.get("desc")),
         seen_seconds=_optional_float(item.get("seen")) or 0.0,
     )
 

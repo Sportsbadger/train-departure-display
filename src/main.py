@@ -10,12 +10,19 @@ from PIL import ImageFont, Image, ImageDraw
 from trains import loadDeparturesForStation
 from adsb import (
     AdsbDataError,
+    AdsbRouteDataError,
     build_detail_text,
+    build_loop_aircraft_text,
+    build_loop_info_text,
+    build_summary_left_text,
+    build_summary_right_text,
+    enrich_aircraft_routes,
     fetch_aircraft_json,
+    fetch_route_lookup_json,
     format_altitude,
-    format_heading,
-    format_speed,
     parse_aircraft,
+    select_featured_aircraft_index,
+    select_secondary_aircraft,
 )
 from config import loadConfig
 from plane_alert import (
@@ -152,7 +159,7 @@ adsbLoopPauseCount = 0
 adsbLoopHasElevated = 0
 
 
-def renderStations(stations):
+def renderStations(stations, initial_pause_frames=20):
     pixels_left = 1
     pixels_up = 0
     has_elevated = False
@@ -183,7 +190,7 @@ def renderStations(stations):
         draw.bitmap((0, txt_height - pixels_up), bitmap, fill="yellow")
         if pixels_up >= txt_height:
             pause_count += 1
-            if pause_count > 20:
+            if pause_count > initial_pause_frames:
                 has_elevated = True
                 pixels_up = 0
                 pause_count = 0
@@ -353,7 +360,7 @@ def loadAdsbData(adsbConfig):
             float(adsbConfig["fetchTimeout"]),
             adsbConfig["userAgent"],
         )
-        return parse_aircraft(
+        aircraft = parse_aircraft(
             payload,
             float(adsbConfig["homeLat"]),
             float(adsbConfig["homeLon"]),
@@ -362,6 +369,28 @@ def loadAdsbData(adsbConfig):
             adsbConfig["minAltitudeFt"],
             int(adsbConfig["displayCount"]),
         )
+        if not adsbConfig["routeLookupEnabled"] or not aircraft:
+            return aircraft
+
+        try:
+            route_payload = fetch_route_lookup_json(
+                adsbConfig["routeApiUrl"],
+                aircraft,
+                float(adsbConfig["routeFetchTimeout"]),
+                adsbConfig["userAgent"],
+            )
+            return enrich_aircraft_routes(
+                aircraft,
+                route_payload,
+                adsbConfig["routeDisplay"],
+            )
+        except requests.RequestException as err:
+            print("Warning: Failed to fetch ADS-B route data")
+            print(err)
+            return aircraft
+        except AdsbRouteDataError as err:
+            print(f"Warning: Failed to parse ADS-B route data: {err}")
+            return aircraft
     except requests.RequestException as err:
         print("Error: Failed to fetch ADS-B data")
         print(err)
@@ -685,14 +714,19 @@ def drawSignage(device, width, height, data):
 
 
 def renderAdsbSummary(aircraft, font):
-    def drawText(draw, *_):
-        summary = (
-            f"{aircraft.display_name}  "
-            f"{aircraft.distance_nm:.0f}nm  "
-            f"{format_altitude(aircraft.altitude_ft)}"
-        )
-        _, _, bitmap = cachedBitmapText(summary, font)
-        draw.bitmap((0, 0), bitmap, fill="yellow")
+    def drawText(draw, width, *_):
+        left_text = build_summary_left_text(aircraft)
+        right_text = build_summary_right_text(aircraft)
+        _, _, left_bitmap = cachedBitmapText(left_text, font)
+        right_width, _, right_bitmap = cachedBitmapText(right_text, font)
+
+        draw.bitmap((0, 0), left_bitmap, fill="yellow")
+        if right_text:
+            draw.bitmap(
+                (max(0, width - right_width), 0),
+                right_bitmap,
+                fill="yellow",
+            )
 
     return drawText
 
@@ -728,64 +762,55 @@ def drawAdsbSignage(device, width, height, aircraft):
     width = virtualViewport.width
     firstFont = fontBold if config['firstDepartureBold'] else font
 
-    bearing_width = int(font.getlength("000deg"))
-    altitude_width = int(font.getlength("00000ft"))
-    label_width = int(font.getlength("Tracking: "))
-
-    rowOneA = snapshot(
-        width - bearing_width,
-        10,
-        renderAdsbSummary(aircraft[0], firstFont),
-        interval=config["adsb"]["refreshTime"],
-    )
-    rowOneB = snapshot(
-        bearing_width,
-        10,
-        renderAdsbBearing(aircraft[0]),
-        interval=config["adsb"]["refreshTime"],
-    )
-    rowTwoA = snapshot(
-        label_width,
-        10,
-        renderTrackingLabel,
-        interval=config["adsb"]["refreshTime"],
-    )
-    rowTwoB = snapshot(
-        width - label_width,
-        10,
-        renderStations(build_detail_text(aircraft[0])),
-        interval=0.02,
-    )
-
-    loop_departures = aircraft[1 : config["adsb"]["displayCount"]]
+    right_info_width = int(font.getlength("999kt 100nm 00000ft"))
     loop_row_gap = 12
     loop_block_height = loop_row_gap * 2
     loop_frame_interval = 0.02
 
+    featured_index = select_featured_aircraft_index(
+        aircraft,
+        time.monotonic(),
+        float(config["loopDepartureInterval"]) * 1.5,
+    )
+    featured_aircraft = aircraft[featured_index]
+
+    rowOneA = snapshot(
+        width,
+        10,
+        renderAdsbSummary(featured_aircraft, firstFont),
+        interval=loop_frame_interval,
+    )
+    rowTwoB = snapshot(
+        width,
+        10,
+        renderStations(
+            build_detail_text(featured_aircraft),
+            initial_pause_frames=50,
+        ),
+        interval=loop_frame_interval,
+    )
+
+    loop_departures = select_secondary_aircraft(
+        aircraft[: config["adsb"]["displayCount"]],
+        featured_index,
+    )
+
     def get_adsb_loop_render_state():
-        start_index = timed_loop_index(
-            len(loop_departures),
-            time.monotonic(),
-            float(config["loopDepartureInterval"]),
-        )
-        return get_looped_departures(loop_departures, start_index)
+        return loop_departures
 
     def draw_loop_aircraft(draw, y_offset, plane, position, *_):
-        summary = (
-            f"{ordinal(position)}  {plane.display_name}  "
-            f"{plane.distance_nm:.0f}nm"
+        _, _, bitmap = cachedBitmapText(
+            build_loop_aircraft_text(plane, position),
+            font,
         )
-        _, _, bitmap = cachedBitmapText(summary, font)
         draw.bitmap((0, y_offset), bitmap, fill="yellow")
 
     def draw_loop_track(draw, y_offset, plane, _position, width):
-        summary = f"{format_heading(plane.track_deg)} {format_speed(plane.ground_speed_kt)}"
-        text_width, _, bitmap = cachedBitmapText(summary, font)
+        text_width, _, bitmap = cachedBitmapText(
+            build_loop_info_text(plane),
+            font,
+        )
         draw.bitmap((width - text_width, y_offset), bitmap, fill="yellow")
-
-    def draw_loop_altitude(draw, y_offset, plane, _position, *_):
-        _, _, bitmap = cachedBitmapText(format_altitude(plane.altitude_ft), font)
-        draw.bitmap((0, y_offset), bitmap, fill="yellow")
 
     def render_adsb_loop_block(renderer):
         def drawText(draw, width, *_):
@@ -797,24 +822,17 @@ def drawAdsbSignage(device, width, height, aircraft):
 
     if len(loop_departures) > 0:
         rowThreeA = snapshot(
-            width - bearing_width - altitude_width,
+            width - right_info_width,
             loop_block_height,
             render_adsb_loop_block(draw_loop_aircraft),
             interval=loop_frame_interval,
         )
         rowThreeB = snapshot(
-            bearing_width,
+            right_info_width,
             loop_block_height,
             render_adsb_loop_block(draw_loop_track),
             interval=loop_frame_interval,
         )
-        rowThreeC = snapshot(
-            altitude_width,
-            loop_block_height,
-            render_adsb_loop_block(draw_loop_altitude),
-            interval=loop_frame_interval,
-        )
-
     rowTime = snapshot(width, 14, renderTime, interval=0.1)
 
     if len(virtualViewport._hotspots) > 0:
@@ -828,17 +846,11 @@ def drawAdsbSignage(device, width, height, aircraft):
     adsbLoopHasElevated = 0
 
     virtualViewport.add_hotspot(rowOneA, (0, 0))
-    virtualViewport.add_hotspot(rowOneB, (width - bearing_width, 0))
-    virtualViewport.add_hotspot(rowTwoA, (0, 12))
-    virtualViewport.add_hotspot(rowTwoB, (label_width, 12))
+    virtualViewport.add_hotspot(rowTwoB, (0, 12))
 
     if len(loop_departures) > 0:
         virtualViewport.add_hotspot(rowThreeA, (0, 24))
-        virtualViewport.add_hotspot(rowThreeB, (width - bearing_width, 24))
-        virtualViewport.add_hotspot(
-            rowThreeC,
-            (width - bearing_width - altitude_width, 24),
-        )
+        virtualViewport.add_hotspot(rowThreeB, (width - right_info_width, 24))
 
     virtualViewport.add_hotspot(rowTime, (0, 50))
 
