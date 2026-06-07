@@ -14,6 +14,7 @@ from alerts import (
     build_alert_template_text,
 )
 from adsb import (
+    LAST_LINE_TEXT as ADSB_LAST_LINE_TEXT,
     AdsbDataError,
     AdsbRouteDataError,
     build_aircraft_template_text,
@@ -22,15 +23,17 @@ from adsb import (
     fetch_route_lookup_json,
     parse_aircraft,
     select_featured_aircraft_index,
-    select_secondary_aircraft,
+    select_secondary_aircraft_display_rows,
 )
 from config import loadConfig
 from plane_alert import (
+    LAST_LINE_TEXT as PLANE_ALERT_LAST_LINE_TEXT,
     PlaneAlertDataError,
     build_plane_alert_template_text,
     fetch_plane_alert_json,
     parse_plane_alerts,
-    select_plane_alert_scroll_alerts,
+    select_featured_plane_alert_index,
+    select_secondary_plane_alert_display_rows,
 )
 from open import isRun
 from departure_loop import (
@@ -209,6 +212,18 @@ def renderTime(draw, width, *_):
 
     draw.bitmap(((width - w1 - w2) / 2, 0), HMBitmap, fill="yellow")
     draw.bitmap((((width - w1 - w2) / 2) + w1, 5), SBitmap, fill="yellow")
+
+
+def renderTimeWithModeLabel(label: str) -> Callable[..., None]:
+    """Render the clock row with a transport mode label on the left."""
+
+    def drawText(draw: ImageDraw.ImageDraw, width: int, *_: Any) -> None:
+        renderTime(draw, width)
+        _, _, bitmap = cachedBitmapText(label, font)
+        draw.bitmap((0, 3), bitmap, fill="yellow")
+
+    return drawText
+
 
 def renderDebugScreen(lines):
     def drawDebug(draw, *_):
@@ -467,7 +482,12 @@ def drawDebugScreen(device, width, height, screen="1", showTime=False):
     virtualViewport.add_hotspot(theBox, (0, 0))
 
     if(showTime):
-        rowTime = snapshot(width, 14, renderTime, interval=0.1)
+        rowTime = snapshot(
+        width,
+        14,
+        renderTimeWithModeLabel("ADSB"),
+        interval=0.1,
+    )
         virtualViewport.add_hotspot(rowTime, (0, 50))
 
     return virtualViewport
@@ -802,7 +822,7 @@ def drawAdsbSignage(device, width, height, aircraft):
         interval=loop_frame_interval,
     )
 
-    loop_departures = select_secondary_aircraft(
+    loop_departures = select_secondary_aircraft_display_rows(
         aircraft[: config["adsb"]["displayCount"]],
         featured_index,
     )
@@ -811,8 +831,16 @@ def drawAdsbSignage(device, width, height, aircraft):
         (
             position,
             plane,
-            build_aircraft_template_text(next_left_template, plane, position),
-            build_aircraft_template_text(next_right_template, plane, position),
+            ADSB_LAST_LINE_TEXT if plane is None else build_aircraft_template_text(
+                next_left_template,
+                plane,
+                position,
+            ),
+            "" if plane is None else build_aircraft_template_text(
+                next_right_template,
+                plane,
+                position,
+            ),
         )
         for position, plane in loop_departures
     ]
@@ -860,20 +888,26 @@ def drawAdsbSignage(device, width, height, aircraft):
 
         return drawText
 
-    if len(loop_departures) > 0:
+    if len(loop_display_rows) > 0:
         rowThreeA = snapshot(
             width - right_info_width,
             loop_block_height,
             render_adsb_loop_block(draw_loop_aircraft),
             interval=loop_frame_interval,
         )
-        rowThreeB = snapshot(
-            right_info_width,
-            loop_block_height,
-            render_adsb_loop_block(draw_loop_track),
-            interval=loop_frame_interval,
-        )
-    rowTime = snapshot(width, 14, renderTime, interval=0.1)
+        if right_info_width > 0:
+            rowThreeB = snapshot(
+                right_info_width,
+                loop_block_height,
+                render_adsb_loop_block(draw_loop_track),
+                interval=loop_frame_interval,
+            )
+    rowTime = snapshot(
+        width,
+        14,
+        renderTimeWithModeLabel("ADSB"),
+        interval=0.1,
+    )
 
     if len(virtualViewport._hotspots) > 0:
         for vhotspot, xy in virtualViewport._hotspots:
@@ -888,9 +922,10 @@ def drawAdsbSignage(device, width, height, aircraft):
     virtualViewport.add_hotspot(rowOneA, (0, 0))
     virtualViewport.add_hotspot(rowTwoB, (0, 12))
 
-    if len(loop_departures) > 0:
+    if len(loop_display_rows) > 0:
         virtualViewport.add_hotspot(rowThreeA, (0, 24))
-        virtualViewport.add_hotspot(rowThreeB, (width - right_info_width, 24))
+        if right_info_width > 0:
+            virtualViewport.add_hotspot(rowThreeB, (width - right_info_width, 24))
 
     virtualViewport.add_hotspot(rowTime, (0, 50))
 
@@ -936,60 +971,71 @@ def drawPlaneAlertSignage(
     width = virtualViewport.width
     firstFont = fontBold if config['firstDepartureBold'] else font
 
+    display_alerts = alerts[: config["planeAlert"]["displayCount"]]
     top_left_template = config["planeAlert"]["topLeftTemplate"]
     top_right_template = config["planeAlert"]["topRightTemplate"]
     scroll_template = config["planeAlert"]["scrollTemplate"]
     next_left_template = config["planeAlert"]["nextLeftTemplate"]
     next_right_template = config["planeAlert"]["nextRightTemplate"]
+    loop_row_gap = 12
+    loop_block_height = loop_row_gap * 2
+    loop_frame_interval = 0.02
 
+    featured_index = select_featured_plane_alert_index(
+        display_alerts,
+        time.monotonic(),
+        float(config["loopDepartureInterval"]) * 1.5,
+    )
+    featured_alert = display_alerts[featured_index]
     top_left_text = build_plane_alert_template_text(
         top_left_template,
-        alerts[0],
+        featured_alert,
     )
     top_right_text = build_plane_alert_template_text(
         top_right_template,
-        alerts[0],
+        featured_alert,
     )
-    scroll_text = build_plane_alert_template_text(scroll_template, alerts[0])
+    scroll_text = build_plane_alert_template_text(
+        scroll_template,
+        featured_alert,
+    )
 
     rowOneA = snapshot(
         width,
         10,
         renderTemplateSummary(top_left_text, top_right_text, firstFont),
-        interval=config["planeAlert"]["refreshTime"],
+        interval=loop_frame_interval,
     )
     rowTwoB = snapshot(
         width,
         10,
-        renderStations(scroll_text),
-        interval=0.02,
+        renderStations(scroll_text, initial_pause_frames=50),
+        interval=loop_frame_interval,
     )
 
-    loop_alerts = select_plane_alert_scroll_alerts(
-        alerts,
-        int(config["planeAlert"]["displayCount"]),
+    loop_departures = select_secondary_plane_alert_display_rows(
+        display_alerts,
+        featured_index,
     )
-    loop_row_gap = 12
-    loop_block_height = loop_row_gap * 2
-    loop_frame_interval = 0.02
 
-    def get_plane_alert_loop_render_state() -> list[tuple[int, Any, str, str]]:
-        start_index = timed_loop_index(
-            len(loop_alerts),
-            time.monotonic(),
-            float(config["loopDepartureInterval"]),
-        )
-        return [
-            (
-                position,
+    loop_display_rows = [
+        (
+            position,
+            alert,
+            PLANE_ALERT_LAST_LINE_TEXT if alert is None else build_plane_alert_template_text(
+                next_left_template,
                 alert,
-                build_plane_alert_template_text(next_left_template, alert, position),
-                build_plane_alert_template_text(next_right_template, alert, position),
-            )
-            for position, alert in get_looped_departures(loop_alerts, start_index)
-        ]
+                position,
+            ),
+            "" if alert is None else build_plane_alert_template_text(
+                next_right_template,
+                alert,
+                position,
+            ),
+        )
+        for position, alert in loop_departures
+    ]
 
-    loop_display_rows = get_plane_alert_loop_render_state()
     right_info_width = max(
         (
             int(font.getlength(right_text))
@@ -998,11 +1044,16 @@ def drawPlaneAlertSignage(
         default=0,
     )
 
+    def get_plane_alert_loop_render_state() -> list[
+        tuple[int | None, Any | None, str, str]
+    ]:
+        return loop_display_rows
+
     def draw_loop_alert(
         draw: ImageDraw.ImageDraw,
         y_offset: int,
-        _position: int,
-        _alert: Any,
+        _position: int | None,
+        _alert: Any | None,
         left_text: str,
         _right_text: str,
         *_: Any,
@@ -1013,8 +1064,8 @@ def drawPlaneAlertSignage(
     def draw_loop_info(
         draw: ImageDraw.ImageDraw,
         y_offset: int,
-        _position: int,
-        _alert: Any,
+        _position: int | None,
+        _alert: Any | None,
         _left_text: str,
         right_text: str,
         width: int,
@@ -1023,7 +1074,10 @@ def drawPlaneAlertSignage(
         draw.bitmap((width - text_width, y_offset), bitmap, fill="yellow")
 
     def render_plane_alert_loop_block(
-        renderer: Callable[[ImageDraw.ImageDraw, int, int, Any, str, str, int], None],
+        renderer: Callable[
+            [ImageDraw.ImageDraw, int, int | None, Any | None, str, str, int],
+            None,
+        ],
     ) -> Callable[..., None]:
         def drawText(draw: ImageDraw.ImageDraw, width: int, *_: Any) -> None:
             current = get_plane_alert_loop_render_state()
@@ -1032,21 +1086,27 @@ def drawPlaneAlertSignage(
 
         return drawText
 
-    if len(loop_alerts) > 0:
+    if len(loop_display_rows) > 0:
         rowThreeA = snapshot(
             width - right_info_width,
             loop_block_height,
             render_plane_alert_loop_block(draw_loop_alert),
             interval=loop_frame_interval,
         )
-        rowThreeB = snapshot(
-            right_info_width,
-            loop_block_height,
-            render_plane_alert_loop_block(draw_loop_info),
-            interval=loop_frame_interval,
-        )
+        if right_info_width > 0:
+            rowThreeB = snapshot(
+                right_info_width,
+                loop_block_height,
+                render_plane_alert_loop_block(draw_loop_info),
+                interval=loop_frame_interval,
+            )
 
-    rowTime = snapshot(width, 14, renderTime, interval=0.1)
+    rowTime = snapshot(
+        width,
+        14,
+        renderTimeWithModeLabel("Plane Alert"),
+        interval=0.1,
+    )
 
     if len(virtualViewport._hotspots) > 0:
         for vhotspot, xy in virtualViewport._hotspots:
@@ -1058,9 +1118,10 @@ def drawPlaneAlertSignage(
     virtualViewport.add_hotspot(rowOneA, (0, 0))
     virtualViewport.add_hotspot(rowTwoB, (0, 12))
 
-    if len(loop_alerts) > 0:
+    if len(loop_display_rows) > 0:
         virtualViewport.add_hotspot(rowThreeA, (0, 24))
-        virtualViewport.add_hotspot(rowThreeB, (width - right_info_width, 24))
+        if right_info_width > 0:
+            virtualViewport.add_hotspot(rowThreeB, (width - right_info_width, 24))
 
     virtualViewport.add_hotspot(rowTime, (0, 50))
 

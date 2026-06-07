@@ -7,6 +7,7 @@ from typing import Any, Mapping, Sequence
 import requests
 
 EARTH_RADIUS_NM = 3440.065
+LAST_LINE_TEXT = "****Last Line****"
 
 
 DEFAULT_ADSB_TOP_LEFT_TEMPLATE = "{summary_left}"
@@ -319,6 +320,39 @@ def select_secondary_aircraft(
         (idx + 1, aircraft_item)
         for idx, aircraft_item in enumerate(aircraft[start:end], start=start)
     ]
+
+
+def select_secondary_aircraft_display_rows(
+    aircraft: Sequence[AdsbAircraft],
+    featured_index: int,
+    window: int = 2,
+) -> list[tuple[int | None, AdsbAircraft | None]]:
+    """Return secondary ADS-B rows, ending with a last-line marker.
+
+    Args:
+        aircraft: Displayable aircraft ordered by distance.
+        featured_index: Zero-based index currently shown with full details.
+        window: Maximum number of lower rows to return.
+
+    Returns:
+        One-based original positions and aircraft records for summary rows. A
+        ``(None, None)`` row marks the end of the list when it falls within the
+        lower-row window.
+    """
+    if window <= 0:
+        return []
+
+    rows: list[tuple[int | None, AdsbAircraft | None]] = [
+        (position, aircraft_item)
+        for position, aircraft_item in select_secondary_aircraft(
+            aircraft,
+            featured_index,
+            window,
+        )
+    ]
+    if len(rows) < window and featured_index < len(aircraft):
+        rows.append((None, None))
+    return rows
 
 
 class _AircraftTemplateContext(dict[str, Any]):

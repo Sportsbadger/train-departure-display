@@ -6,6 +6,8 @@ from typing import Any, Mapping, Sequence
 
 import requests
 
+LAST_LINE_TEXT = "****Last Line****"
+
 TIMESTAMP_FORMATS = (
     "%Y/%m/%d %H:%M:%S",
     "%Y-%m-%d %H:%M:%S",
@@ -129,6 +131,61 @@ def select_plane_alert_scroll_alerts(
     return list(alerts[1:display_count])
 
 
+
+
+def select_featured_plane_alert_index(
+    alerts: Sequence[PlaneAlert],
+    now: float,
+    interval_s: float,
+) -> int:
+    """Select which Plane-Alert record receives the full-detail display.
+
+    Args:
+        alerts: Displayable Plane-Alert records ordered newest first.
+        now: Monotonic time in seconds.
+        interval_s: Seconds to keep each record highlighted.
+
+    Returns:
+        Zero-based alert index, or 0 for an empty sequence.
+    """
+    if not alerts:
+        return 0
+
+    safe_interval = max(interval_s, 1.0)
+    return int(now // safe_interval) % len(alerts)
+
+
+def select_secondary_plane_alert_display_rows(
+    alerts: Sequence[PlaneAlert],
+    featured_index: int,
+    window: int = 2,
+) -> list[tuple[int | None, PlaneAlert | None]]:
+    """Return secondary Plane-Alert rows, ending with a last-line marker.
+
+    Args:
+        alerts: Displayable Plane-Alert records ordered newest first.
+        featured_index: Zero-based index currently shown with full details.
+        window: Maximum number of lower rows to return.
+
+    Returns:
+        One-based original positions and alert records for summary rows. A
+        ``(None, None)`` row marks the end of the list when it falls within the
+        lower-row window.
+    """
+    if window <= 0:
+        return []
+    if featured_index >= len(alerts):
+        return []
+
+    start = featured_index + 1
+    end = start + window
+    rows: list[tuple[int | None, PlaneAlert | None]] = [
+        (idx + 1, alert)
+        for idx, alert in enumerate(alerts[start:end], start=start)
+    ]
+    if len(rows) < window:
+        rows.append((None, None))
+    return rows
 
 
 class _PlaneAlertTemplateContext(dict[str, Any]):
