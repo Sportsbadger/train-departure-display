@@ -10,6 +10,7 @@ from adsb import (  # noqa: E402
     AdsbDataError,
     AdsbRouteDataError,
     build_detail_text,
+    build_summary_text,
     enrich_aircraft_routes,
     fetch_aircraft_json,
     fetch_route_lookup_json,
@@ -135,6 +136,28 @@ def test_parse_route_lookup_supports_iata_icao_and_city_routes():
     assert city_routes["BAW15"].destination == "Sydney"
 
 
+def test_parse_route_lookup_accepts_wrapped_routes_and_airport_fallbacks():
+    payload = {
+        "routes": [
+            {
+                "callsign": "UAL881",
+                "_airports": [
+                    {"iata": "ORD", "icao": "KORD", "location": "Chicago"},
+                    {"iata": "HND", "icao": "RJTT", "location": "Tokyo"},
+                ],
+            }
+        ]
+    }
+
+    iata_routes = parse_route_lookup(payload, "iata")
+    icao_routes = parse_route_lookup(payload, "icao")
+
+    assert iata_routes["UAL881"].origin == "ORD"
+    assert iata_routes["UAL881"].destination == "HND"
+    assert icao_routes["UAL881"].origin == "KORD"
+    assert icao_routes["UAL881"].destination == "RJTT"
+
+
 def test_enrich_aircraft_routes_adds_route_to_matching_callsign_detail():
     aircraft = parse_aircraft(
         {
@@ -146,6 +169,11 @@ def test_enrich_aircraft_routes_adds_route_to_matching_callsign_detail():
                     "lon": -0.1,
                     "seen": 1,
                     "t": "A388",
+                    "r": "G-XLEA",
+                    "desc": "Airbus A380",
+                    "tas": 488,
+                    "mach": 0.85,
+                    "baro_rate": 128,
                 },
                 {
                     "hex": "def456",
@@ -177,7 +205,10 @@ def test_enrich_aircraft_routes_adds_route_to_matching_callsign_detail():
 
     assert enriched[0].route == "LHR-SYD"
     assert enriched[1].route == ""
-    assert build_detail_text(enriched[0]).startswith("LHR-SYD  A388")
+    assert build_summary_text(enriched[0]).startswith("BAW15  LHR-SYD")
+    assert build_detail_text(enriched[0]) == (
+        "G-XLEA  A388  Airbus A380  tas 488kt  mach 0.85  climb 128fpm"
+    )
 
 
 def test_parse_route_lookup_rejects_unsupported_payload_shape():
@@ -314,7 +345,7 @@ def test_select_featured_aircraft_index_cycles_one_aircraft_at_a_time():
     assert select_featured_aircraft_index(aircraft, now=30.0, interval_s=10) == 0
 
 
-def test_select_secondary_aircraft_excludes_featured_and_keeps_positions():
+def test_select_secondary_aircraft_returns_next_two_ranked_aircraft():
     aircraft = parse_aircraft(
         {
             "aircraft": [
@@ -334,7 +365,6 @@ def test_select_secondary_aircraft_excludes_featured_and_keeps_positions():
     secondary = select_secondary_aircraft(aircraft, featured_index=1)
 
     assert [(position, item.hex) for position, item in secondary] == [
-        (1, "aaa111"),
         (3, "ccc333"),
     ]
 
