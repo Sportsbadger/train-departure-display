@@ -53,6 +53,30 @@ def test_fetch_plane_alert_json_sends_configured_user_agent(monkeypatch):
     assert calls["timeout"] == 2.0
 
 
+def test_fetch_plane_alert_json_reports_non_json_response(monkeypatch):
+    class FakeResponse:
+        status_code = 200
+        text = "<html>not json</html>"
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            raise ValueError("not json")
+
+    def fake_get(url, headers, timeout):
+        return FakeResponse()
+
+    monkeypatch.setattr("plane_alert.requests.get", fake_get)
+
+    with pytest.raises(PlaneAlertDataError, match="not JSON"):
+        fetch_plane_alert_json(
+            "http://example.test/plane-alert/pa_query.php?timestamp=.*&type=json",
+            timeout_s=2.0,
+            user_agent="Mozilla/5.0 TestDisplay",
+        )
+
+
 def test_parse_plane_alerts_sorts_filters_and_accepts_wrapped_records():
     payload = {
         "data": [
@@ -94,6 +118,31 @@ def test_parse_plane_alerts_sorts_filters_and_accepts_wrapped_records():
     assert result[0].lat == 51.5
     assert "Boeing C-32A" in build_plane_alert_detail_text(result[0])
     assert "AE1234" in build_plane_alert_detail_text(result[0])
+
+
+def test_parse_plane_alerts_accepts_docker_planefence_query_keys():
+    payload = [
+        {
+            "index": "101",
+            "icao": "AE1234",
+            "tail": "N123AB",
+            "callsign": "@SAM123",
+            "owner": "USAF",
+            "type": "Boeing C-32A",
+            "time:time_at_mindist": "2026/06/06 11:30:00",
+            "lat": "51.500",
+            "lon": "-0.100",
+        }
+    ]
+
+    result = parse_plane_alerts(payload, max_age_hours=None, limit=5)
+
+    assert len(result) == 1
+    assert result[0].hex == "AE1234"
+    assert result[0].display_name == "SAM123"
+    assert result[0].name == "USAF"
+    assert result[0].equipment == "Boeing C-32A"
+    assert result[0].timestamp == datetime(2026, 6, 6, 11, 30, 0)
 
 
 def test_parse_plane_alerts_accepts_mapping_of_records_and_limit():

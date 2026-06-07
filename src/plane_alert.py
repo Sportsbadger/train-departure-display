@@ -68,7 +68,14 @@ def fetch_plane_alert_json(
     }
     response = requests.get(source_url, headers=headers, timeout=timeout_s)
     response.raise_for_status()
-    return response.json()
+    try:
+        return response.json()
+    except ValueError as err:
+        body_preview = response.text[:120].strip() or "<empty response>"
+        raise PlaneAlertDataError(
+            "Plane-Alert response was not JSON "
+            f"(HTTP {response.status_code}): {body_preview}"
+        ) from err
 
 
 def parse_plane_alerts(
@@ -405,7 +412,15 @@ def _parse_plane_alert_item(item: Mapping[str, Any]) -> PlaneAlert | None:
         name=_first_clean_text(item, "name", "owner"),
         equipment=_first_clean_text(item, "equipment", "type", "aircraft_type"),
         timestamp=_parse_timestamp(
-            _first_clean_text(item, "timestamp", "first_seen", "last_seen"),
+            _first_clean_text(
+                item,
+                "timestamp",
+                "first_seen",
+                "last_seen",
+                "time:time_at_mindist",
+                "time_at_mindist",
+                "time",
+            ),
         ),
         lat=_optional_float(item.get("lat", item.get("latitude"))),
         lon=_optional_float(item.get("lon", item.get("longitude"))),

@@ -81,7 +81,7 @@ data:
     - alertsEnabled: False
     - transportModes: train
     - modeSwitchInterval: 300
-    - planeAlertSourceUrl: http://192.168.1.74/planefence/pa_query.php?timestamp=.*&type=json
+    - planeAlertSourceUrl: http://192.168.1.74:8088/plane-alert/pa_query.php?timestamp=.*&type=json
     - planeAlertRefreshTime: 30
     - planeAlertDisplayCount: 5
     - alertsMqttHost: 127.0.0.1

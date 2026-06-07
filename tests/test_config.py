@@ -62,7 +62,7 @@ def test_adsb_config_defaults_to_disabled_train_only(monkeypatch):
     assert config["adsb"]["nextLeftTemplate"] == "{loop_aircraft}"
     assert config["adsb"]["nextRightTemplate"] == "{loop_info}"
     assert config["planeAlert"]["enabled"] is False
-    assert "planefence/pa_query.php" in config["planeAlert"]["sourceUrl"]
+    assert ":8088/plane-alert/pa_query.php" in config["planeAlert"]["sourceUrl"]
     assert config["planeAlert"]["fetchTimeout"] == 15.0
     assert config["planeAlert"]["topLeftTemplate"] == "{summary_left}"
     assert config["planeAlert"]["topRightTemplate"] == "{summary_right}"

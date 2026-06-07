@@ -78,7 +78,7 @@ adsbNextRightTemplate={speed} {distance} {altitude}
 
 ## Plane-Alert mode (optional)
 
-Plane-Alert support is disabled by default. When enabled, the display can alternate to a docker-planefence Plane-Alert board using the `pa_query.php` JSON API exposed by the Plane-Alert web UI. Use the exact `pa_query.php` path from your Plane-Alert installation; for example, if PlaneFence is served from `/planefence`, use `/planefence/pa_query.php` rather than adding `/plane-alert`.
+Plane-Alert support is disabled by default. When enabled, the display can alternate to a docker-planefence Plane-Alert board using the `pa_query.php` JSON API exposed by the Plane-Alert web UI. Use the exact `pa_query.php` path from your Plane-Alert installation; current docker-planefence serves Plane-Alert at `/plane-alert`, so the API endpoint is usually `/plane-alert/pa_query.php`.
 
 | Key | Example Value
 |-----|----------
@@ -86,7 +86,7 @@ Plane-Alert support is disabled by default. When enabled, the display can altern
 | `transportModes` | `train,adsb,plane-alert` (ordered comma-separated modes to display; `planealert` is also accepted; defaults to `train`)
 | `modeSwitchInterval` | `300` (seconds before switching to the next configured mode)
 | `transportFallbackMode` | `train` (fallback shown if Plane-Alert fetch/parsing fails; set to anything else to show a Plane-Alert unavailable screen instead)
-| `planeAlertSourceUrl` | `http://192.168.1.74/planefence/pa_query.php?timestamp=.*&type=json` (Plane-Alert JSON endpoint; include at least one query parameter because docker-planefence requires it)
+| `planeAlertSourceUrl` | `http://192.168.1.74:8088/plane-alert/pa_query.php?timestamp=.*&type=json` (Plane-Alert JSON endpoint; include at least one query parameter because docker-planefence requires it)
 | `planeAlertFetchTimeout` | `15` (HTTP timeout in seconds; increase this if the browser works but the app times out)
 | `planeAlertUserAgent` | `Mozilla/5.0 TrainDepartureDisplay/Plane-Alert` (HTTP User-Agent sent to the Plane-Alert web proxy)
 | `planeAlertRefreshTime` | `30` (seconds between Plane-Alert background JSON refresh attempts)
