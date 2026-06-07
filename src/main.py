@@ -154,10 +154,10 @@ adsbLoopPauseCount = 0
 adsbLoopHasElevated = 0
 
 
-def renderStations(stations, initial_pause_frames=20):
+def renderStations(stations, initial_pause_frames=20, vertical_intro=True):
     pixels_left = 1
     pixels_up = 0
-    has_elevated = False
+    has_elevated = not vertical_intro
     pause_count = 0
     txt_width, txt_height, bitmap = cachedBitmapText(stations, font)
 
@@ -172,7 +172,7 @@ def renderStations(stations, initial_pause_frames=20):
                 if pause_count >= 8:
                     pixels_left = 1
                     pixels_up = 0
-                    has_elevated = False
+                    has_elevated = not vertical_intro
                     pause_count = 0
                 return
 
@@ -802,6 +802,7 @@ def drawAdsbSignage(device, width, height, aircraft):
         renderStations(
             scroll_text,
             initial_pause_frames=50,
+            vertical_intro=False,
         ),
         interval=loop_frame_interval,
     )
@@ -974,8 +975,11 @@ def drawPlaneAlertSignage(
     rowTwoB = snapshot(
         width - label_width,
         10,
-        renderStations(build_plane_alert_detail_text(alerts[0])),
-        interval=0.02,
+        renderStations(
+            build_plane_alert_detail_text(alerts[0]),
+            vertical_intro=False,
+        ),
+        interval=0.01,
     )
 
     loop_alerts = select_plane_alert_scroll_alerts(
