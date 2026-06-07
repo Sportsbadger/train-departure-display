@@ -12,13 +12,14 @@ from adsb import (
     AdsbDataError,
     AdsbRouteDataError,
     build_detail_text,
-    build_summary_text,
+    build_loop_aircraft_text,
+    build_loop_info_text,
+    build_summary_left_text,
+    build_summary_right_text,
     enrich_aircraft_routes,
     fetch_aircraft_json,
     fetch_route_lookup_json,
     format_altitude,
-    format_heading,
-    format_speed,
     parse_aircraft,
     select_featured_aircraft_index,
     select_secondary_aircraft,
@@ -713,9 +714,19 @@ def drawSignage(device, width, height, data):
 
 
 def renderAdsbSummary(aircraft, font):
-    def drawText(draw, *_):
-        _, _, bitmap = cachedBitmapText(build_summary_text(aircraft), font)
-        draw.bitmap((0, 0), bitmap, fill="yellow")
+    def drawText(draw, width, *_):
+        left_text = build_summary_left_text(aircraft)
+        right_text = build_summary_right_text(aircraft)
+        _, _, left_bitmap = cachedBitmapText(left_text, font)
+        right_width, _, right_bitmap = cachedBitmapText(right_text, font)
+
+        draw.bitmap((0, 0), left_bitmap, fill="yellow")
+        if right_text:
+            draw.bitmap(
+                (max(0, width - right_width), 0),
+                right_bitmap,
+                fill="yellow",
+            )
 
     return drawText
 
@@ -751,7 +762,7 @@ def drawAdsbSignage(device, width, height, aircraft):
     width = virtualViewport.width
     firstFont = fontBold if config['firstDepartureBold'] else font
 
-    bearing_width = int(font.getlength("000deg"))
+    right_info_width = int(font.getlength("100nm NW 000 999kt"))
     altitude_width = int(font.getlength("00000ft"))
     loop_row_gap = 12
     loop_block_height = loop_row_gap * 2
@@ -789,16 +800,17 @@ def drawAdsbSignage(device, width, height, aircraft):
         return loop_departures
 
     def draw_loop_aircraft(draw, y_offset, plane, position, *_):
-        summary = (
-            f"{ordinal(position)}  {plane.display_name}  "
-            f"{plane.distance_nm:.0f}nm"
+        _, _, bitmap = cachedBitmapText(
+            build_loop_aircraft_text(plane, position),
+            font,
         )
-        _, _, bitmap = cachedBitmapText(summary, font)
         draw.bitmap((0, y_offset), bitmap, fill="yellow")
 
     def draw_loop_track(draw, y_offset, plane, _position, width):
-        summary = f"{format_heading(plane.track_deg)} {format_speed(plane.ground_speed_kt)}"
-        text_width, _, bitmap = cachedBitmapText(summary, font)
+        text_width, _, bitmap = cachedBitmapText(
+            build_loop_info_text(plane),
+            font,
+        )
         draw.bitmap((width - text_width, y_offset), bitmap, fill="yellow")
 
     def draw_loop_altitude(draw, y_offset, plane, _position, *_):
@@ -815,13 +827,13 @@ def drawAdsbSignage(device, width, height, aircraft):
 
     if len(loop_departures) > 0:
         rowThreeA = snapshot(
-            width - bearing_width - altitude_width,
+            width - right_info_width - altitude_width,
             loop_block_height,
             render_adsb_loop_block(draw_loop_aircraft),
             interval=loop_frame_interval,
         )
         rowThreeB = snapshot(
-            bearing_width,
+            right_info_width,
             loop_block_height,
             render_adsb_loop_block(draw_loop_track),
             interval=loop_frame_interval,
@@ -850,10 +862,10 @@ def drawAdsbSignage(device, width, height, aircraft):
 
     if len(loop_departures) > 0:
         virtualViewport.add_hotspot(rowThreeA, (0, 24))
-        virtualViewport.add_hotspot(rowThreeB, (width - bearing_width, 24))
+        virtualViewport.add_hotspot(rowThreeB, (width - right_info_width, 24))
         virtualViewport.add_hotspot(
             rowThreeC,
-            (width - bearing_width - altitude_width, 24),
+            (width - right_info_width - altitude_width, 24),
         )
 
     virtualViewport.add_hotspot(rowTime, (0, 50))

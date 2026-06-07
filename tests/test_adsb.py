@@ -10,6 +10,8 @@ from adsb import (  # noqa: E402
     AdsbDataError,
     AdsbRouteDataError,
     build_detail_text,
+    build_loop_aircraft_text,
+    build_loop_info_text,
     build_summary_text,
     enrich_aircraft_routes,
     fetch_aircraft_json,
@@ -61,6 +63,7 @@ def test_fetch_route_lookup_json_posts_callsigns_and_positions(monkeypatch):
 
         status_code = 200
         text = "[]"
+        content = b"[]"
 
         def json(self):
             return []
@@ -113,10 +116,50 @@ def test_fetch_route_lookup_json_posts_callsigns_and_positions(monkeypatch):
     assert calls["timeout"] == 4.0
 
 
+def test_fetch_route_lookup_json_returns_empty_for_empty_201(monkeypatch):
+    class FakeResponse:
+        status_code = 201
+        text = ""
+        content = b""
+
+        def raise_for_status(self):
+            return None
+
+    monkeypatch.setattr("adsb.requests.post", lambda *_, **__: FakeResponse())
+
+    result = fetch_route_lookup_json(
+        "https://api.example.test/api/0/routeset",
+        parse_aircraft(
+            {
+                "aircraft": [
+                    {
+                        "hex": "abc123",
+                        "flight": "BAW15",
+                        "lat": 51.5,
+                        "lon": -0.1,
+                        "seen": 1,
+                    }
+                ]
+            },
+            home_lat=51.5,
+            home_lon=-0.1,
+            max_age_s=30,
+            max_distance_nm=None,
+            min_altitude_ft=None,
+            limit=5,
+        ),
+        timeout_s=4.0,
+        user_agent="Mozilla/5.0 TestDisplay",
+    )
+
+    assert result == []
+
+
 def test_fetch_route_lookup_json_raises_route_error_for_non_json(monkeypatch):
     class FakeResponse:
         status_code = 200
         text = "main"
+        content = b"main"
 
         def raise_for_status(self):
             return None
@@ -252,7 +295,7 @@ def test_enrich_aircraft_routes_adds_route_to_matching_callsign_detail():
     assert enriched[0].route == "LHR-SYD"
     assert enriched[1].route == ""
     assert build_summary_text(enriched[0]) == (
-        "BAW15  LHR-SYD  G-XLEA  A388  488kt  0nm  ----ft"
+        "BAW15  LHR-SYD    G-XLEA  A388  488kt  0nm  ----ft"
     )
     assert build_detail_text(enriched[0]) == (
         "Airbus A380  brg 000deg  E 090  gs 450kt  tas 488kt  "
@@ -416,6 +459,34 @@ def test_select_secondary_aircraft_returns_next_two_ranked_aircraft():
     assert [(position, item.hex) for position, item in secondary] == [
         (3, "ccc333"),
     ]
+
+
+def test_loop_aircraft_text_places_type_left_and_distance_right():
+    aircraft = parse_aircraft(
+        {
+            "aircraft": [
+                {
+                    "hex": "abc123",
+                    "flight": "BAW15",
+                    "lat": 51.5,
+                    "lon": -0.1,
+                    "seen": 1,
+                    "t": "A388",
+                    "gs": 450,
+                    "track": 90,
+                }
+            ]
+        },
+        home_lat=51.5,
+        home_lon=-0.1,
+        max_age_s=30,
+        max_distance_nm=None,
+        min_altitude_ft=None,
+        limit=5,
+    )[0]
+
+    assert build_loop_aircraft_text(aircraft, 2) == "2nd  BAW15  A388"
+    assert build_loop_info_text(aircraft) == "0nm E 090 450kt"
 
 
 def test_format_altitude_handles_unknown_and_ground():

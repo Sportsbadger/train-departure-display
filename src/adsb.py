@@ -140,6 +140,9 @@ def fetch_route_lookup_json(
         timeout=timeout_s,
     )
     response.raise_for_status()
+    if not response.content and not response.text:
+        return []
+
     try:
         return response.json()
     except ValueError as err:
@@ -311,11 +314,16 @@ def select_secondary_aircraft(
     ]
 
 
-def build_summary_text(aircraft: AdsbAircraft) -> str:
-    """Build the top-row summary line for an aircraft."""
+def build_summary_left_text(aircraft: AdsbAircraft) -> str:
+    """Build the left-side top-row summary text."""
+    return "  ".join(
+        part for part in [aircraft.display_name, aircraft.route] if part
+    )
+
+
+def build_summary_right_text(aircraft: AdsbAircraft) -> str:
+    """Build the right-side top-row summary text."""
     parts = [
-        aircraft.display_name,
-        aircraft.route,
         aircraft.registration,
         aircraft.aircraft_type,
         format_summary_speed(aircraft),
@@ -323,6 +331,47 @@ def build_summary_text(aircraft: AdsbAircraft) -> str:
         format_altitude(aircraft.altitude_ft),
     ]
     return "  ".join(part for part in parts if part)
+
+
+def build_summary_text(aircraft: AdsbAircraft) -> str:
+    """Build the complete top-row summary line for an aircraft."""
+    return "    ".join(
+        part
+        for part in [
+            build_summary_left_text(aircraft),
+            build_summary_right_text(aircraft),
+        ]
+        if part
+    )
+
+
+def build_loop_aircraft_text(aircraft: AdsbAircraft, position: int) -> str:
+    """Build the lower-row left text for a secondary aircraft."""
+    parts = [
+        ordinal_text(position),
+        aircraft.display_name,
+        aircraft.aircraft_type,
+    ]
+    return "  ".join(part for part in parts if part)
+
+
+def build_loop_info_text(aircraft: AdsbAircraft) -> str:
+    """Build the lower-row right text for a secondary aircraft."""
+    parts = [
+        f"{aircraft.distance_nm:.0f}nm",
+        format_heading(aircraft.track_deg),
+        format_speed(aircraft.ground_speed_kt),
+    ]
+    return " ".join(part for part in parts if part)
+
+
+def ordinal_text(value: int) -> str:
+    """Return the ordinal suffix representation for a positive integer."""
+    if 10 <= value % 100 <= 20:
+        suffix = "th"
+    else:
+        suffix = {1: "st", 2: "nd", 3: "rd"}.get(value % 10, "th")
+    return f"{value}{suffix}"
 
 
 def format_summary_speed(aircraft: AdsbAircraft) -> str:
