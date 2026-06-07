@@ -19,6 +19,11 @@ def test_adsb_config_defaults_to_disabled_train_only(monkeypatch):
         "adsbRouteApiUrl",
         "adsbRouteFetchTimeout",
         "adsbRouteDisplay",
+        "adsbTopLeftTemplate",
+        "adsbTopRightTemplate",
+        "adsbScrollTemplate",
+        "adsbNextLeftTemplate",
+        "adsbNextRightTemplate",
         "planeAlertEnabled",
         "planeAlertSourceUrl",
         "planeAlertFetchTimeout",
@@ -37,6 +42,11 @@ def test_adsb_config_defaults_to_disabled_train_only(monkeypatch):
     assert "routeset" in config["adsb"]["routeApiUrl"]
     assert config["adsb"]["routeFetchTimeout"] == 4.0
     assert config["adsb"]["routeDisplay"] == "iata"
+    assert config["adsb"]["topLeftTemplate"] == "{summary_left}"
+    assert config["adsb"]["topRightTemplate"] == "{summary_right}"
+    assert config["adsb"]["scrollTemplate"] == "{detail}"
+    assert config["adsb"]["nextLeftTemplate"] == "{loop_aircraft}"
+    assert config["adsb"]["nextRightTemplate"] == "{loop_info}"
     assert config["planeAlert"]["enabled"] is False
     assert "planefence/pa_query.php" in config["planeAlert"]["sourceUrl"]
     assert config["planeAlert"]["fetchTimeout"] == 15.0
@@ -55,6 +65,11 @@ def test_adsb_config_parses_enabled_values(monkeypatch):
     monkeypatch.setenv("adsbRouteApiUrl", "https://api.example.test/routeset")
     monkeypatch.setenv("adsbRouteFetchTimeout", "0")
     monkeypatch.setenv("adsbRouteDisplay", "city")
+    monkeypatch.setenv("adsbTopLeftTemplate", "{display_name}")
+    monkeypatch.setenv("adsbTopRightTemplate", "{altitude}")
+    monkeypatch.setenv("adsbScrollTemplate", "{description} {seen}")
+    monkeypatch.setenv("adsbNextLeftTemplate", "{position_ordinal} {flight}")
+    monkeypatch.setenv("adsbNextRightTemplate", "{distance}")
     monkeypatch.setenv("planeAlertEnabled", "True")
     monkeypatch.setenv("planeAlertFetchTimeout", "0")
     monkeypatch.setenv("planeAlertDisplayCount", "0")
@@ -74,6 +89,11 @@ def test_adsb_config_parses_enabled_values(monkeypatch):
     assert config["adsb"]["routeApiUrl"] == "https://api.example.test/routeset"
     assert config["adsb"]["routeFetchTimeout"] == 0.1
     assert config["adsb"]["routeDisplay"] == "city"
+    assert config["adsb"]["topLeftTemplate"] == "{display_name}"
+    assert config["adsb"]["topRightTemplate"] == "{altitude}"
+    assert config["adsb"]["scrollTemplate"] == "{description} {seen}"
+    assert config["adsb"]["nextLeftTemplate"] == "{position_ordinal} {flight}"
+    assert config["adsb"]["nextRightTemplate"] == "{distance}"
     assert config["planeAlert"]["enabled"] is True
     assert config["planeAlert"]["fetchTimeout"] == 0.1
     assert config["planeAlert"]["displayCount"] == 1
