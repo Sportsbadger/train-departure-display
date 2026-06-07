@@ -19,6 +19,8 @@ from adsb import (
     format_heading,
     format_speed,
     parse_aircraft,
+    select_featured_aircraft_index,
+    select_secondary_aircraft,
 )
 from config import loadConfig
 from plane_alert import (
@@ -756,18 +758,28 @@ def drawAdsbSignage(device, width, height, aircraft):
     bearing_width = int(font.getlength("000deg"))
     altitude_width = int(font.getlength("00000ft"))
     label_width = int(font.getlength("Tracking: "))
+    loop_row_gap = 12
+    loop_block_height = loop_row_gap * 2
+    loop_frame_interval = 0.02
+
+    featured_index = select_featured_aircraft_index(
+        aircraft,
+        time.monotonic(),
+        float(config["loopDepartureInterval"]),
+    )
+    featured_aircraft = aircraft[featured_index]
 
     rowOneA = snapshot(
         width - bearing_width,
         10,
-        renderAdsbSummary(aircraft[0], firstFont),
-        interval=config["adsb"]["refreshTime"],
+        renderAdsbSummary(featured_aircraft, firstFont),
+        interval=loop_frame_interval,
     )
     rowOneB = snapshot(
         bearing_width,
         10,
-        renderAdsbBearing(aircraft[0]),
-        interval=config["adsb"]["refreshTime"],
+        renderAdsbBearing(featured_aircraft),
+        interval=loop_frame_interval,
     )
     rowTwoA = snapshot(
         label_width,
@@ -778,14 +790,14 @@ def drawAdsbSignage(device, width, height, aircraft):
     rowTwoB = snapshot(
         width - label_width,
         10,
-        renderStations(build_detail_text(aircraft[0])),
-        interval=0.02,
+        renderStations(build_detail_text(featured_aircraft)),
+        interval=loop_frame_interval,
     )
 
-    loop_departures = aircraft[1 : config["adsb"]["displayCount"]]
-    loop_row_gap = 12
-    loop_block_height = loop_row_gap * 2
-    loop_frame_interval = 0.02
+    loop_departures = select_secondary_aircraft(
+        aircraft[: config["adsb"]["displayCount"]],
+        featured_index,
+    )
 
     def get_adsb_loop_render_state():
         start_index = timed_loop_index(
@@ -793,7 +805,7 @@ def drawAdsbSignage(device, width, height, aircraft):
             time.monotonic(),
             float(config["loopDepartureInterval"]),
         )
-        return get_looped_departures(loop_departures, start_index)
+        return loop_departures[start_index : start_index + 2]
 
     def draw_loop_aircraft(draw, y_offset, plane, position, *_):
         summary = (

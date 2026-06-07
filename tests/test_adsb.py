@@ -16,6 +16,8 @@ from adsb import (  # noqa: E402
     format_altitude,
     parse_aircraft,
     parse_route_lookup,
+    select_featured_aircraft_index,
+    select_secondary_aircraft,
 )
 
 
@@ -287,6 +289,54 @@ def test_parse_aircraft_rejects_payload_without_aircraft_list():
             min_altitude_ft=None,
             limit=5,
         )
+
+
+def test_select_featured_aircraft_index_cycles_one_aircraft_at_a_time():
+    aircraft = parse_aircraft(
+        {
+            "aircraft": [
+                {"hex": "aaa111", "lat": 51.5, "lon": -0.1, "seen": 1},
+                {"hex": "bbb222", "lat": 51.6, "lon": -0.2, "seen": 1},
+                {"hex": "ccc333", "lat": 51.7, "lon": -0.3, "seen": 1},
+            ]
+        },
+        home_lat=51.5,
+        home_lon=-0.1,
+        max_age_s=30,
+        max_distance_nm=None,
+        min_altitude_ft=None,
+        limit=5,
+    )
+
+    assert select_featured_aircraft_index(aircraft, now=0.0, interval_s=10) == 0
+    assert select_featured_aircraft_index(aircraft, now=10.0, interval_s=10) == 1
+    assert select_featured_aircraft_index(aircraft, now=20.0, interval_s=10) == 2
+    assert select_featured_aircraft_index(aircraft, now=30.0, interval_s=10) == 0
+
+
+def test_select_secondary_aircraft_excludes_featured_and_keeps_positions():
+    aircraft = parse_aircraft(
+        {
+            "aircraft": [
+                {"hex": "aaa111", "lat": 51.5, "lon": -0.1, "seen": 1},
+                {"hex": "bbb222", "lat": 51.6, "lon": -0.2, "seen": 1},
+                {"hex": "ccc333", "lat": 51.7, "lon": -0.3, "seen": 1},
+            ]
+        },
+        home_lat=51.5,
+        home_lon=-0.1,
+        max_age_s=30,
+        max_distance_nm=None,
+        min_altitude_ft=None,
+        limit=5,
+    )
+
+    secondary = select_secondary_aircraft(aircraft, featured_index=1)
+
+    assert [(position, item.hex) for position, item in secondary] == [
+        (1, "aaa111"),
+        (3, "ccc333"),
+    ]
 
 
 def test_format_altitude_handles_unknown_and_ground():

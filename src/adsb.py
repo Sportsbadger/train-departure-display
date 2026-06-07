@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 from math import atan2, cos, radians, sin, sqrt
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 
 import requests
 
@@ -251,6 +251,48 @@ def parse_aircraft(
         if _passes_filters(item, max_age_s, max_distance_nm, min_altitude_ft)
     ]
     return sorted(filtered, key=lambda item: item.distance_nm)[:limit]
+
+
+def select_featured_aircraft_index(
+    aircraft: Sequence[AdsbAircraft],
+    now: float,
+    interval_s: float,
+) -> int:
+    """Select which aircraft should receive the full-detail display.
+
+    Args:
+        aircraft: Displayable aircraft ordered by distance.
+        now: Monotonic time in seconds.
+        interval_s: Seconds to keep each aircraft highlighted.
+
+    Returns:
+        Zero-based aircraft index, or 0 for an empty sequence.
+    """
+    if not aircraft:
+        return 0
+
+    safe_interval = max(interval_s, 1.0)
+    return int(now // safe_interval) % len(aircraft)
+
+
+def select_secondary_aircraft(
+    aircraft: Sequence[AdsbAircraft],
+    featured_index: int,
+) -> list[tuple[int, AdsbAircraft]]:
+    """Return aircraft not currently highlighted with original positions.
+
+    Args:
+        aircraft: Displayable aircraft ordered by distance.
+        featured_index: Zero-based index currently shown with full details.
+
+    Returns:
+        One-based original aircraft positions and aircraft records for summary rows.
+    """
+    return [
+        (idx + 1, aircraft_item)
+        for idx, aircraft_item in enumerate(aircraft)
+        if idx != featured_index
+    ]
 
 
 def format_altitude(altitude_ft: int | None) -> str:
