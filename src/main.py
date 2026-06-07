@@ -11,15 +11,10 @@ from trains import loadDeparturesForStation
 from adsb import (
     AdsbDataError,
     AdsbRouteDataError,
-    build_detail_text,
-    build_loop_aircraft_text,
-    build_loop_info_text,
-    build_summary_left_text,
-    build_summary_right_text,
+    build_aircraft_template_text,
     enrich_aircraft_routes,
     fetch_aircraft_json,
     fetch_route_lookup_json,
-    format_altitude,
     parse_aircraft,
     select_featured_aircraft_index,
     select_secondary_aircraft,
@@ -713,10 +708,10 @@ def drawSignage(device, width, height, data):
     return virtualViewport
 
 
-def renderAdsbSummary(aircraft, font):
+def renderAdsbSummary(aircraft, font, left_template: str, right_template: str):
     def drawText(draw, width, *_):
-        left_text = build_summary_left_text(aircraft)
-        right_text = build_summary_right_text(aircraft)
+        left_text = build_aircraft_template_text(left_template, aircraft)
+        right_text = build_aircraft_template_text(right_template, aircraft)
         _, _, left_bitmap = cachedBitmapText(left_text, font)
         right_width, _, right_bitmap = cachedBitmapText(right_text, font)
 
@@ -762,7 +757,11 @@ def drawAdsbSignage(device, width, height, aircraft):
     width = virtualViewport.width
     firstFont = fontBold if config['firstDepartureBold'] else font
 
-    right_info_width = int(font.getlength("999kt 100nm 00000ft"))
+    top_left_template = config["adsb"]["topLeftTemplate"]
+    top_right_template = config["adsb"]["topRightTemplate"]
+    scroll_template = config["adsb"]["scrollTemplate"]
+    next_left_template = config["adsb"]["nextLeftTemplate"]
+    next_right_template = config["adsb"]["nextRightTemplate"]
     loop_row_gap = 12
     loop_block_height = loop_row_gap * 2
     loop_frame_interval = 0.02
@@ -777,14 +776,19 @@ def drawAdsbSignage(device, width, height, aircraft):
     rowOneA = snapshot(
         width,
         10,
-        renderAdsbSummary(featured_aircraft, firstFont),
+        renderAdsbSummary(
+            featured_aircraft,
+            firstFont,
+            top_left_template,
+            top_right_template,
+        ),
         interval=loop_frame_interval,
     )
     rowTwoB = snapshot(
         width,
         10,
         renderStations(
-            build_detail_text(featured_aircraft),
+            build_aircraft_template_text(scroll_template, featured_aircraft),
             initial_pause_frames=50,
         ),
         interval=loop_frame_interval,
@@ -798,16 +802,32 @@ def drawAdsbSignage(device, width, height, aircraft):
     def get_adsb_loop_render_state():
         return loop_departures
 
+    right_info_width = max(
+        (
+            int(
+                font.getlength(
+                    build_aircraft_template_text(
+                        next_right_template,
+                        plane,
+                        position,
+                    )
+                )
+            )
+            for position, plane in loop_departures
+        ),
+        default=0,
+    )
+
     def draw_loop_aircraft(draw, y_offset, plane, position, *_):
         _, _, bitmap = cachedBitmapText(
-            build_loop_aircraft_text(plane, position),
+            build_aircraft_template_text(next_left_template, plane, position),
             font,
         )
         draw.bitmap((0, y_offset), bitmap, fill="yellow")
 
-    def draw_loop_track(draw, y_offset, plane, _position, width):
+    def draw_loop_track(draw, y_offset, plane, position, width):
         text_width, _, bitmap = cachedBitmapText(
-            build_loop_info_text(plane),
+            build_aircraft_template_text(next_right_template, plane, position),
             font,
         )
         draw.bitmap((width - text_width, y_offset), bitmap, fill="yellow")

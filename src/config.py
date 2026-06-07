@@ -2,6 +2,13 @@ import os
 import re
 
 
+DEFAULT_ADSB_TOP_LEFT_TEMPLATE = "{summary_left}"
+DEFAULT_ADSB_TOP_RIGHT_TEMPLATE = "{summary_right}"
+DEFAULT_ADSB_SCROLL_TEMPLATE = "{detail}"
+DEFAULT_ADSB_NEXT_LEFT_TEMPLATE = "{loop_aircraft}"
+DEFAULT_ADSB_NEXT_RIGHT_TEMPLATE = "{loop_info}"
+
+
 def _env_bool(name: str, default: bool = False) -> bool:
     value = os.getenv(name)
     if value is None:
@@ -156,6 +163,22 @@ def loadConfig():
     ).lower()
     if data["adsb"]["routeDisplay"] not in ("iata", "icao", "city"):
         data["adsb"]["routeDisplay"] = "iata"
+
+    data["adsb"]["topLeftTemplate"] = (
+        os.getenv("adsbTopLeftTemplate") or DEFAULT_ADSB_TOP_LEFT_TEMPLATE
+    )
+    data["adsb"]["topRightTemplate"] = (
+        os.getenv("adsbTopRightTemplate") or DEFAULT_ADSB_TOP_RIGHT_TEMPLATE
+    )
+    data["adsb"]["scrollTemplate"] = (
+        os.getenv("adsbScrollTemplate") or DEFAULT_ADSB_SCROLL_TEMPLATE
+    )
+    data["adsb"]["nextLeftTemplate"] = (
+        os.getenv("adsbNextLeftTemplate") or DEFAULT_ADSB_NEXT_LEFT_TEMPLATE
+    )
+    data["adsb"]["nextRightTemplate"] = (
+        os.getenv("adsbNextRightTemplate") or DEFAULT_ADSB_NEXT_RIGHT_TEMPLATE
+    )
 
     data["planeAlert"]["enabled"] = _env_bool("planeAlertEnabled", False)
     data["planeAlert"]["sourceUrl"] = (

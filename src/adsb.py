@@ -9,6 +9,13 @@ import requests
 EARTH_RADIUS_NM = 3440.065
 
 
+DEFAULT_ADSB_TOP_LEFT_TEMPLATE = "{summary_left}"
+DEFAULT_ADSB_TOP_RIGHT_TEMPLATE = "{summary_right}"
+DEFAULT_ADSB_SCROLL_TEMPLATE = "{detail}"
+DEFAULT_ADSB_NEXT_LEFT_TEMPLATE = "{loop_aircraft}"
+DEFAULT_ADSB_NEXT_RIGHT_TEMPLATE = "{loop_info}"
+
+
 @dataclass(frozen=True)
 class AdsbAircraft:
     """Display-ready aircraft data from readsb/tar1090 JSON."""
@@ -314,6 +321,99 @@ def select_secondary_aircraft(
     ]
 
 
+class _AircraftTemplateContext(dict[str, Any]):
+    """Template context that renders unknown or blank variables as empty text."""
+
+    def __missing__(self, key: str) -> str:
+        return ""
+
+
+def build_aircraft_template_text(
+    template: str,
+    aircraft: AdsbAircraft,
+    position: int | None = None,
+) -> str:
+    """Build aircraft display text from a user-configured template.
+
+    Args:
+        template: Python ``str.format_map``-style template containing ADS-B
+            variable names in braces, for example ``"{display_name} {altitude}"``.
+        aircraft: Aircraft used to populate template variables.
+        position: Optional one-based aircraft position for lower detail rows.
+
+    Returns:
+        Rendered display text with surrounding whitespace removed. Unknown
+        variables render as blank text so a typo does not crash animation.
+    """
+    context = _AircraftTemplateContext(
+        hex=aircraft.hex.upper(),
+        flight=aircraft.flight,
+        display_name=aircraft.display_name,
+        registration=aircraft.registration,
+        route=aircraft.route,
+        origin=aircraft.origin,
+        destination=aircraft.destination,
+        aircraft_type=aircraft.aircraft_type,
+        description=aircraft.description,
+        latitude=aircraft.latitude,
+        longitude=aircraft.longitude,
+        distance_nm=aircraft.distance_nm,
+        distance=f"{aircraft.distance_nm:.0f}nm",
+        bearing_deg=aircraft.bearing_deg,
+        bearing=format_bearing(aircraft.bearing_deg),
+        altitude_ft=(
+            aircraft.altitude_ft if aircraft.altitude_ft is not None else ""
+        ),
+        altitude=format_altitude(aircraft.altitude_ft),
+        ground_speed_kt=(
+            aircraft.ground_speed_kt
+            if aircraft.ground_speed_kt is not None
+            else ""
+        ),
+        speed=format_speed(aircraft.ground_speed_kt),
+        ground_speed=format_ground_speed(aircraft.ground_speed_kt),
+        true_air_speed_kt=(
+            aircraft.true_air_speed_kt
+            if aircraft.true_air_speed_kt is not None
+            else ""
+        ),
+        true_air_speed=format_true_air_speed(aircraft.true_air_speed_kt),
+        summary_speed=format_summary_speed(aircraft),
+        mach_value=aircraft.mach if aircraft.mach is not None else "",
+        mach=format_mach(aircraft.mach),
+        track_deg=(
+            aircraft.track_deg if aircraft.track_deg is not None else ""
+        ),
+        heading=format_heading(aircraft.track_deg),
+        vertical_rate_fpm=(
+            aircraft.vertical_rate_fpm
+            if aircraft.vertical_rate_fpm is not None
+            else ""
+        ),
+        vertical_rate=format_vertical_rate(aircraft.vertical_rate_fpm),
+        squawk=aircraft.squawk,
+        squawk_label=f"sq {aircraft.squawk}" if aircraft.squawk else "",
+        seen_seconds=aircraft.seen_seconds,
+        seen=format_seen(aircraft.seen_seconds),
+        position=position or "",
+        position_ordinal=(
+            ordinal_text(position) if position is not None else ""
+        ),
+        summary_left=build_summary_left_text(aircraft),
+        summary_right=build_summary_right_text(aircraft),
+        summary=build_summary_text(aircraft),
+        detail=build_detail_text(aircraft),
+        loop_aircraft=build_loop_aircraft_text(aircraft, position)
+        if position is not None
+        else "",
+        loop_info=build_loop_info_text(aircraft),
+    )
+    try:
+        return template.format_map(context).strip()
+    except (KeyError, TypeError, ValueError):
+        return ""
+
+
 def build_summary_left_text(aircraft: AdsbAircraft) -> str:
     """Build the left-side top-row summary text."""
     return "  ".join(
@@ -460,7 +560,6 @@ def build_detail_text(aircraft: AdsbAircraft) -> str:
         format_vertical_rate(aircraft.vertical_rate_fpm),
         f"sq {aircraft.squawk}" if aircraft.squawk else "",
         aircraft.hex.upper(),
-        format_seen(aircraft.seen_seconds),
     ]
     return "  ".join(part for part in parts if part)
 

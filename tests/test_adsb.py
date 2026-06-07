@@ -9,6 +9,7 @@ sys.path.append(str(PROJECT_ROOT / "src"))
 from adsb import (  # noqa: E402
     AdsbDataError,
     AdsbRouteDataError,
+    build_aircraft_template_text,
     build_detail_text,
     build_loop_aircraft_text,
     build_loop_info_text,
@@ -300,7 +301,58 @@ def test_enrich_aircraft_routes_adds_route_to_matching_callsign_detail():
     )
     assert build_detail_text(enriched[0]) == (
         "Airbus A380  brg 000deg  E 090  gs 450kt  tas 488kt  "
-        "mach 0.85  climb 128fpm  sq 1234  ABC123  seen 1s"
+        "mach 0.85  climb 128fpm  sq 1234  ABC123"
+    )
+
+
+def test_aircraft_template_text_renders_configurable_fields():
+    aircraft = parse_aircraft(
+        {
+            "aircraft": [
+                {
+                    "hex": "abc123",
+                    "flight": "BAW15",
+                    "lat": 51.5,
+                    "lon": -0.1,
+                    "seen": 1,
+                    "r": "G-XLEA",
+                    "t": "A388",
+                    "gs": 450,
+                    "track": 90,
+                    "alt_baro": 38000,
+                    "squawk": "1234",
+                }
+            ]
+        },
+        home_lat=51.5,
+        home_lon=-0.1,
+        max_age_s=30,
+        max_distance_nm=None,
+        min_altitude_ft=None,
+        limit=5,
+    )[0]
+
+    assert build_aircraft_template_text(
+        "{position_ordinal} {display_name} {registration} {altitude} {seen}",
+        aircraft,
+        position=2,
+    ) == "2nd BAW15 G-XLEA 38000ft seen 1s"
+
+
+def test_aircraft_template_text_blanks_unknown_variables():
+    aircraft = parse_aircraft(
+        {"aircraft": [{"hex": "abc123", "lat": 51.5, "lon": -0.1}]},
+        home_lat=51.5,
+        home_lon=-0.1,
+        max_age_s=30,
+        max_distance_nm=None,
+        min_altitude_ft=None,
+        limit=5,
+    )[0]
+
+    assert (
+        build_aircraft_template_text("{display_name} {missing}", aircraft)
+        == "ABC123"
     )
 
 

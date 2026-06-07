@@ -56,8 +56,25 @@ ADS-B support is disabled by default. When enabled, the display can alternate be
 | `adsbRouteApiUrl` | `https://api.adsb.lol/api/0/routeset` (route lookup endpoint accepting a `planes` JSON POST body)
 | `adsbRouteFetchTimeout` | `4` (HTTP timeout in seconds for the route lookup request)
 | `adsbRouteDisplay` | `iata` (route label format: `iata`, `icao`, or `city`)
+| `adsbTopLeftTemplate` | `{summary_left}` (highlight row left block)
+| `adsbTopRightTemplate` | `{summary_right}` (highlight row right block)
+| `adsbScrollTemplate` | `{detail}` (single scrolling row block; the default detail no longer includes `seen`)
+| `adsbNextLeftTemplate` | `{loop_aircraft}` (next-aircraft detail left block)
+| `adsbNextRightTemplate` | `{loop_info}` (next-aircraft detail right block)
 
-The ADS-B board skips aircraft without positions, because nearest-aircraft sorting requires latitude and longitude. When `adsbRouteLookupEnabled` is true, the app keeps the existing readsb/tar1090 aircraft JSON as the live aircraft source, then POSTs the displayed aircraft callsigns and positions to the configured `adsbRouteApiUrl`. Returned origin/destination data is best-effort and appears on the highlighted aircraft top line when available. The highlighted full-detail aircraft cycles through all displayed aircraft using a slightly extended `loopDepartureInterval`; when the first aircraft is highlighted, the lower ADS-B rows show only the second and third aircraft, then the third and fourth when the second is highlighted, and so on. The highlighted top line shows flight, route, registration, aircraft type, preferred speed, distance, and altitude. The highlighted scrolling detail line pauses briefly before moving, then shows description, bearing, track, ground speed, true airspeed, Mach, climb/descent rate, squawk, hex, and seen age when those fields are available. Secondary aircraft rows show rank, flight, and type on the left, with speed, distance, and altitude grouped on the right. ADS-B JSON is refreshed in the background and cached before/while the mode is displayed, so slow reads do not block OLED animation or mode transitions. Network failures and malformed ADS-B JSON are handled separately from train loading so the train board can continue to run. Empty `201` route responses are treated as no-route results rather than route parse failures. The default `adsbUserAgent` avoids reverse proxy bot blocks that reject the default Python requests User-Agent.
+The ADS-B board skips aircraft without positions, because nearest-aircraft sorting requires latitude and longitude. When `adsbRouteLookupEnabled` is true, the app keeps the existing readsb/tar1090 aircraft JSON as the live aircraft source, then POSTs the displayed aircraft callsigns and positions to the configured `adsbRouteApiUrl`. Returned origin/destination data is best-effort and appears on the highlighted aircraft top line when available. The highlighted full-detail aircraft cycles through all displayed aircraft using a slightly extended `loopDepartureInterval`; when the first aircraft is highlighted, the lower ADS-B rows show only the second and third aircraft, then the third and fourth when the second is highlighted, and so on. The default highlighted top line shows flight, route, registration, aircraft type, preferred speed, distance, and altitude. The highlighted scrolling detail line pauses briefly before moving, then shows description, bearing, track, ground speed, true airspeed, Mach, climb/descent rate, squawk, and hex when those fields are available. Secondary aircraft rows default to rank, flight, and type on the left, with speed, distance, and altitude grouped on the right. ADS-B JSON is refreshed in the background and cached before/while the mode is displayed, so slow reads do not block OLED animation or mode transitions. Network failures and malformed ADS-B JSON are handled separately from train loading so the train board can continue to run. Empty `201` route responses are treated as no-route results rather than route parse failures. The default `adsbUserAgent` avoids reverse proxy bot blocks that reject the default Python requests User-Agent.
+
+ADS-B display templates use `{variable}` placeholders. Available variables are: `{summary_left}`, `{summary_right}`, `{summary}`, `{detail}`, `{loop_aircraft}`, `{loop_info}`, `{position}`, `{position_ordinal}`, `{display_name}`, `{flight}`, `{registration}`, `{hex}`, `{route}`, `{origin}`, `{destination}`, `{aircraft_type}`, `{description}`, `{latitude}`, `{longitude}`, `{distance_nm}`, `{distance}`, `{bearing_deg}`, `{bearing}`, `{altitude_ft}`, `{altitude}`, `{ground_speed_kt}`, `{speed}`, `{ground_speed}`, `{true_air_speed_kt}`, `{true_air_speed}`, `{summary_speed}`, `{mach_value}`, `{mach}`, `{track_deg}`, `{heading}`, `{vertical_rate_fpm}`, `{vertical_rate}`, `{squawk}`, `{squawk_label}`, `{seen_seconds}`, and `{seen}`.
+
+Example custom ADS-B layout:
+
+```env
+adsbTopLeftTemplate={display_name} {route}
+adsbTopRightTemplate={registration} {aircraft_type} {altitude}
+adsbScrollTemplate={description}  {bearing}  {heading}  {ground_speed}  {squawk_label}  {hex}
+adsbNextLeftTemplate={position_ordinal} {display_name} {aircraft_type}
+adsbNextRightTemplate={speed} {distance} {altitude}
+```
 
 ## Plane-Alert mode (optional)
 
