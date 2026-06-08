@@ -7,6 +7,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.append(str(PROJECT_ROOT / "src"))
 
 from adsb import (  # noqa: E402
+    LAST_LINE_TEXT,
     AdsbDataError,
     AdsbRouteDataError,
     build_aircraft_template_text,
@@ -22,6 +23,7 @@ from adsb import (  # noqa: E402
     parse_route_lookup,
     select_featured_aircraft_index,
     select_secondary_aircraft,
+    select_secondary_aircraft_display_rows,
 )
 
 
@@ -532,6 +534,36 @@ def test_select_secondary_aircraft_returns_next_two_ranked_aircraft():
         (3, "ccc333"),
     ]
 
+
+def test_select_secondary_aircraft_display_rows_adds_last_line_marker():
+    aircraft = parse_aircraft(
+        {
+            "aircraft": [
+                {"hex": "aaa111", "lat": 51.5, "lon": -0.1, "seen": 1},
+                {"hex": "bbb222", "lat": 51.6, "lon": -0.2, "seen": 1},
+                {"hex": "ccc333", "lat": 51.7, "lon": -0.3, "seen": 1},
+            ]
+        },
+        home_lat=51.5,
+        home_lon=-0.1,
+        max_age_s=30,
+        max_distance_nm=None,
+        min_altitude_ft=None,
+        limit=5,
+    )
+
+    rows = select_secondary_aircraft_display_rows(aircraft, featured_index=1)
+
+    assert [
+        (position, item.hex if item is not None else LAST_LINE_TEXT)
+        for position, item in rows
+    ] == [
+        (3, "ccc333"),
+        (None, LAST_LINE_TEXT),
+    ]
+    assert select_secondary_aircraft_display_rows(aircraft, featured_index=2) == [
+        (None, None),
+    ]
 
 def test_loop_aircraft_text_places_type_left_and_distance_right():
     aircraft = parse_aircraft(

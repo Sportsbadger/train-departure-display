@@ -8,6 +8,11 @@ from datetime import datetime
 from PIL import ImageFont, Image, ImageDraw
 
 from trains import loadDeparturesForStation
+from alerts import (
+    DisplayAlert,
+    MqttAlertListener,
+    build_alert_template_text,
+)
 from adsb import (
     AdsbDataError,
     AdsbRouteDataError,
@@ -17,16 +22,16 @@ from adsb import (
     fetch_route_lookup_json,
     parse_aircraft,
     select_featured_aircraft_index,
-    select_secondary_aircraft,
+    select_secondary_aircraft_display_rows,
 )
 from config import loadConfig
 from plane_alert import (
     PlaneAlertDataError,
-    build_plane_alert_detail_text,
+    build_plane_alert_template_text,
     fetch_plane_alert_json,
-    format_plane_alert_timestamp,
     parse_plane_alerts,
-    select_plane_alert_scroll_alerts,
+    select_featured_plane_alert_index,
+    select_secondary_plane_alert_display_rows,
 )
 from open import isRun
 from departure_loop import (
@@ -205,6 +210,18 @@ def renderTime(draw, width, *_):
 
     draw.bitmap(((width - w1 - w2) / 2, 0), HMBitmap, fill="yellow")
     draw.bitmap((((width - w1 - w2) / 2) + w1, 5), SBitmap, fill="yellow")
+
+
+def renderTimeWithModeLabel(label: str) -> Callable[..., None]:
+    """Render the clock row with a transport mode label on the left."""
+
+    def drawText(draw: ImageDraw.ImageDraw, width: int, *_: Any) -> None:
+        renderTime(draw, width)
+        _, _, bitmap = cachedBitmapText(label, font)
+        draw.bitmap((0, 3), bitmap, fill="yellow")
+
+    return drawText
+
 
 def renderDebugScreen(lines):
     def drawDebug(draw, *_):
@@ -463,7 +480,12 @@ def drawDebugScreen(device, width, height, screen="1", showTime=False):
     virtualViewport.add_hotspot(theBox, (0, 0))
 
     if(showTime):
-        rowTime = snapshot(width, 14, renderTime, interval=0.1)
+        rowTime = snapshot(
+        width,
+        14,
+        renderTimeWithModeLabel("ADSB"),
+        interval=0.1,
+    )
         virtualViewport.add_hotspot(rowTime, (0, 50))
 
     return virtualViewport
@@ -798,7 +820,7 @@ def drawAdsbSignage(device, width, height, aircraft):
         interval=loop_frame_interval,
     )
 
-    loop_departures = select_secondary_aircraft(
+    loop_departures = select_secondary_aircraft_display_rows(
         aircraft[: config["adsb"]["displayCount"]],
         featured_index,
     )
@@ -807,8 +829,20 @@ def drawAdsbSignage(device, width, height, aircraft):
         (
             position,
             plane,
-            build_aircraft_template_text(next_left_template, plane, position),
-            build_aircraft_template_text(next_right_template, plane, position),
+            (
+                config["transport"]["lastLineText"]
+                if plane is None
+                else build_aircraft_template_text(
+                    next_left_template,
+                    plane,
+                    position,
+                )
+            ),
+            "" if plane is None else build_aircraft_template_text(
+                next_right_template,
+                plane,
+                position,
+            ),
         )
         for position, plane in loop_departures
     ]
@@ -816,60 +850,45 @@ def drawAdsbSignage(device, width, height, aircraft):
     def get_adsb_loop_render_state():
         return loop_display_rows
 
-    right_info_width = max(
-        (
-            int(font.getlength(right_text))
-            for _position, _plane, _left_text, right_text in loop_display_rows
-        ),
-        default=0,
-    )
-
-    def draw_loop_aircraft(
-        draw,
-        y_offset,
-        _position,
-        _plane,
-        left_text,
-        _right_text,
-        _width,
-    ):
-        _, _, bitmap = cachedBitmapText(left_text, font)
-        draw.bitmap((0, y_offset), bitmap, fill="yellow")
-
-    def draw_loop_track(
-        draw,
-        y_offset,
-        _position,
-        _plane,
-        _left_text,
-        right_text,
-        width,
-    ):
-        text_width, _, bitmap = cachedBitmapText(right_text, font)
-        draw.bitmap((width - text_width, y_offset), bitmap, fill="yellow")
-
-    def render_adsb_loop_block(renderer):
-        def drawText(draw, width, *_):
+    def render_adsb_loop_block() -> Callable[..., None]:
+        def drawText(draw: ImageDraw.ImageDraw, width: int, *_: Any) -> None:
             current = get_adsb_loop_render_state()
-            for idx, row in enumerate(current):
-                renderer(draw, idx * loop_row_gap, *row, width)
+            for idx, (_position, plane, left_text, right_text) in enumerate(current):
+                y_offset = idx * loop_row_gap
+                left_width, _, left_bitmap = cachedBitmapText(left_text, font)
+                if plane is None:
+                    draw.bitmap(
+                        (max(0, (width - left_width) / 2), y_offset),
+                        left_bitmap,
+                        fill="yellow",
+                    )
+                    continue
+
+                draw.bitmap((0, y_offset), left_bitmap, fill="yellow")
+                if not right_text:
+                    continue
+                right_width, _, right_bitmap = cachedBitmapText(right_text, font)
+                draw.bitmap(
+                    (max(0, width - right_width), y_offset),
+                    right_bitmap,
+                    fill="yellow",
+                )
 
         return drawText
 
-    if len(loop_departures) > 0:
-        rowThreeA = snapshot(
-            width - right_info_width,
+    if len(loop_display_rows) > 0:
+        rowThree = snapshot(
+            width,
             loop_block_height,
-            render_adsb_loop_block(draw_loop_aircraft),
+            render_adsb_loop_block(),
             interval=loop_frame_interval,
         )
-        rowThreeB = snapshot(
-            right_info_width,
-            loop_block_height,
-            render_adsb_loop_block(draw_loop_track),
-            interval=loop_frame_interval,
-        )
-    rowTime = snapshot(width, 14, renderTime, interval=0.1)
+    rowTime = snapshot(
+        width,
+        14,
+        renderTimeWithModeLabel("ADSB"),
+        interval=0.1,
+    )
 
     if len(virtualViewport._hotspots) > 0:
         for vhotspot, xy in virtualViewport._hotspots:
@@ -884,41 +903,31 @@ def drawAdsbSignage(device, width, height, aircraft):
     virtualViewport.add_hotspot(rowOneA, (0, 0))
     virtualViewport.add_hotspot(rowTwoB, (0, 12))
 
-    if len(loop_departures) > 0:
-        virtualViewport.add_hotspot(rowThreeA, (0, 24))
-        virtualViewport.add_hotspot(rowThreeB, (width - right_info_width, 24))
+    if len(loop_display_rows) > 0:
+        virtualViewport.add_hotspot(rowThree, (0, 24))
 
     virtualViewport.add_hotspot(rowTime, (0, 50))
 
     return virtualViewport
 
 
-def renderPlaneAlertSummary(alert: Any, font: ImageFont.FreeTypeFont):
-    def drawText(draw, *_):
-        summary = (
-            f"{alert.display_name}  "
-            f"{alert.tail or alert.hex.upper()}  "
-            f"{format_plane_alert_timestamp(alert.timestamp)}"
-        )
-        _, _, bitmap = cachedBitmapText(summary, font)
-        draw.bitmap((0, 0), bitmap, fill="yellow")
+def renderTemplateSummary(
+    left_text: str,
+    right_text: str,
+    display_font: Any,
+) -> Callable[..., None]:
+    def drawText(draw: ImageDraw.ImageDraw, width: int, *_: Any) -> None:
+        _, _, left_bitmap = cachedBitmapText(left_text, display_font)
+        right_width, _, right_bitmap = cachedBitmapText(right_text, font)
+        draw.bitmap((0, 0), left_bitmap, fill="yellow")
+        if right_text:
+            draw.bitmap(
+                (max(0, width - right_width), 0),
+                right_bitmap,
+                fill="yellow",
+            )
 
     return drawText
-
-
-def renderPlaneAlertHex(alert: Any):
-    def drawText(draw, width, *_):
-        hex_value = alert.hex.upper() or "------"
-        text_width, _, bitmap = cachedBitmapText(hex_value, font)
-        draw.bitmap((width - text_width, 0), bitmap, fill="yellow")
-
-    return drawText
-
-
-def renderAlertLabel(draw: ImageDraw.ImageDraw, *_: Any) -> None:
-    label = "Alert: "
-    _, _, bitmap = cachedBitmapText(label, font)
-    draw.bitmap((0, 0), bitmap, fill="yellow")
 
 
 def drawPlaneAlertSignage(
@@ -941,117 +950,120 @@ def drawPlaneAlertSignage(
     width = virtualViewport.width
     firstFont = fontBold if config['firstDepartureBold'] else font
 
-    hex_width = int(font.getlength("AAAAAA"))
-    time_width = int(font.getlength("00:00"))
-    label_width = int(font.getlength("Alert: "))
-
-    rowOneA = snapshot(
-        width - hex_width,
-        10,
-        renderPlaneAlertSummary(alerts[0], firstFont),
-        interval=config["planeAlert"]["refreshTime"],
-    )
-    rowOneB = snapshot(
-        hex_width,
-        10,
-        renderPlaneAlertHex(alerts[0]),
-        interval=config["planeAlert"]["refreshTime"],
-    )
-    rowTwoA = snapshot(
-        label_width,
-        10,
-        renderAlertLabel,
-        interval=config["planeAlert"]["refreshTime"],
-    )
-    rowTwoB = snapshot(
-        width - label_width,
-        10,
-        renderStations(build_plane_alert_detail_text(alerts[0])),
-        interval=0.02,
-    )
-
-    loop_alerts = select_plane_alert_scroll_alerts(
-        alerts,
-        int(config["planeAlert"]["displayCount"]),
-    )
+    display_alerts = alerts[: config["planeAlert"]["displayCount"]]
+    top_left_template = config["planeAlert"]["topLeftTemplate"]
+    top_right_template = config["planeAlert"]["topRightTemplate"]
+    scroll_template = config["planeAlert"]["scrollTemplate"]
+    next_left_template = config["planeAlert"]["nextLeftTemplate"]
+    next_right_template = config["planeAlert"]["nextRightTemplate"]
     loop_row_gap = 12
     loop_block_height = loop_row_gap * 2
     loop_frame_interval = 0.02
 
-    def get_plane_alert_loop_render_state() -> list[tuple[int, Any]]:
-        start_index = timed_loop_index(
-            len(loop_alerts),
-            time.monotonic(),
-            float(config["loopDepartureInterval"]),
+    featured_index = select_featured_plane_alert_index(
+        display_alerts,
+        time.monotonic(),
+        float(config["loopDepartureInterval"]) * 1.5,
+    )
+    featured_alert = display_alerts[featured_index]
+    top_left_text = build_plane_alert_template_text(
+        top_left_template,
+        featured_alert,
+    )
+    top_right_text = build_plane_alert_template_text(
+        top_right_template,
+        featured_alert,
+    )
+    scroll_text = build_plane_alert_template_text(
+        scroll_template,
+        featured_alert,
+    )
+
+    rowOneA = snapshot(
+        width,
+        10,
+        renderTemplateSummary(top_left_text, top_right_text, firstFont),
+        interval=loop_frame_interval,
+    )
+    rowTwoB = snapshot(
+        width,
+        10,
+        renderStations(scroll_text, initial_pause_frames=50),
+        interval=loop_frame_interval,
+    )
+
+    loop_departures = select_secondary_plane_alert_display_rows(
+        display_alerts,
+        featured_index,
+    )
+
+    loop_display_rows = [
+        (
+            position,
+            alert,
+            (
+                config["transport"]["lastLineText"]
+                if alert is None
+                else build_plane_alert_template_text(
+                    next_left_template,
+                    alert,
+                    position,
+                )
+            ),
+            "" if alert is None else build_plane_alert_template_text(
+                next_right_template,
+                alert,
+                position,
+            ),
         )
-        return get_looped_departures(loop_alerts, start_index)
+        for position, alert in loop_departures
+    ]
 
-    def draw_loop_alert(
-        draw: ImageDraw.ImageDraw,
-        y_offset: int,
-        alert: Any,
-        position: int,
-        *_: Any,
-    ) -> None:
-        summary = f"{ordinal(position)}  {alert.display_name}  {alert.tail}"
-        _, _, bitmap = cachedBitmapText(summary.strip(), font)
-        draw.bitmap((0, y_offset), bitmap, fill="yellow")
+    def get_plane_alert_loop_render_state() -> list[
+        tuple[int | None, Any | None, str, str]
+    ]:
+        return loop_display_rows
 
-    def draw_loop_equipment(
-        draw: ImageDraw.ImageDraw,
-        y_offset: int,
-        alert: Any,
-        _position: int,
-        width: int,
-    ) -> None:
-        summary = alert.equipment or alert.name
-        text_width, _, bitmap = cachedBitmapText(summary, font)
-        draw.bitmap((width - text_width, y_offset), bitmap, fill="yellow")
-
-    def draw_loop_time(
-        draw: ImageDraw.ImageDraw,
-        y_offset: int,
-        alert: Any,
-        _position: int,
-        *_: Any,
-    ) -> None:
-        _, _, bitmap = cachedBitmapText(
-            format_plane_alert_timestamp(alert.timestamp),
-            font,
-        )
-        draw.bitmap((0, y_offset), bitmap, fill="yellow")
-
-    def render_plane_alert_loop_block(
-        renderer: Callable[[ImageDraw.ImageDraw, int, Any, int, int], None],
-    ) -> Callable[..., None]:
+    def render_plane_alert_loop_block() -> Callable[..., None]:
         def drawText(draw: ImageDraw.ImageDraw, width: int, *_: Any) -> None:
             current = get_plane_alert_loop_render_state()
-            for idx, (position, alert) in enumerate(current):
-                renderer(draw, idx * loop_row_gap, alert, position, width)
+            for idx, (_position, alert, left_text, right_text) in enumerate(current):
+                y_offset = idx * loop_row_gap
+                left_width, _, left_bitmap = cachedBitmapText(left_text, font)
+                if alert is None:
+                    draw.bitmap(
+                        (max(0, (width - left_width) / 2), y_offset),
+                        left_bitmap,
+                        fill="yellow",
+                    )
+                    continue
+
+                draw.bitmap((0, y_offset), left_bitmap, fill="yellow")
+                if not right_text:
+                    continue
+                right_width, _, right_bitmap = cachedBitmapText(right_text, font)
+                draw.bitmap(
+                    (max(0, width - right_width), y_offset),
+                    right_bitmap,
+                    fill="yellow",
+                )
 
         return drawText
 
-    if len(loop_alerts) > 0:
-        rowThreeA = snapshot(
-            width - hex_width - time_width,
+    if len(loop_display_rows) > 0:
+        rowThree = snapshot(
+            width,
             loop_block_height,
-            render_plane_alert_loop_block(draw_loop_alert),
-            interval=loop_frame_interval,
-        )
-        rowThreeB = snapshot(
-            hex_width,
-            loop_block_height,
-            render_plane_alert_loop_block(draw_loop_equipment),
-            interval=loop_frame_interval,
-        )
-        rowThreeC = snapshot(
-            time_width,
-            loop_block_height,
-            render_plane_alert_loop_block(draw_loop_time),
+            render_plane_alert_loop_block(),
             interval=loop_frame_interval,
         )
 
-    rowTime = snapshot(width, 14, renderTime, interval=0.1)
+    rowTime = snapshot(
+        width,
+        14,
+        renderTimeWithModeLabel("Plane Alert"),
+        interval=0.1,
+    )
 
     if len(virtualViewport._hotspots) > 0:
         for vhotspot, xy in virtualViewport._hotspots:
@@ -1061,19 +1073,79 @@ def drawPlaneAlertSignage(
     pauseCount = 0
 
     virtualViewport.add_hotspot(rowOneA, (0, 0))
-    virtualViewport.add_hotspot(rowOneB, (width - hex_width, 0))
-    virtualViewport.add_hotspot(rowTwoA, (0, 12))
-    virtualViewport.add_hotspot(rowTwoB, (label_width, 12))
+    virtualViewport.add_hotspot(rowTwoB, (0, 12))
 
-    if len(loop_alerts) > 0:
-        virtualViewport.add_hotspot(rowThreeA, (0, 24))
-        virtualViewport.add_hotspot(rowThreeB, (width - hex_width, 24))
-        virtualViewport.add_hotspot(
-            rowThreeC,
-            (width - hex_width - time_width, 24),
-        )
+    if len(loop_display_rows) > 0:
+        virtualViewport.add_hotspot(rowThree, (0, 24))
 
     virtualViewport.add_hotspot(rowTime, (0, 50))
+
+    return virtualViewport
+
+
+def renderCenteredTemplateLine(
+    text: str,
+    display_font: Any,
+) -> Callable[..., None]:
+    def drawText(draw: ImageDraw.ImageDraw, width: int, *_: Any) -> None:
+        text_width, _, bitmap = cachedBitmapText(text, display_font)
+        draw.bitmap(
+            (max(0, (width - text_width) / 2), 0),
+            bitmap,
+            fill="yellow",
+        )
+
+    return drawText
+
+
+def drawAlertSignage(
+    device: Any,
+    width: int,
+    height: int,
+    alert: DisplayAlert,
+) -> Any:
+    """Build a full-screen interrupting alert viewport."""
+    virtualViewport = viewport(device, width=width, height=height)
+    width = virtualViewport.width
+
+    title_text = build_alert_template_text(config["alerts"]["titleTemplate"], alert)
+    top_text = build_alert_template_text(config["alerts"]["topTemplate"], alert)
+    middle_text = build_alert_template_text(config["alerts"]["middleTemplate"], alert)
+    bottom_text = build_alert_template_text(config["alerts"]["bottomTemplate"], alert)
+
+    rowOne = snapshot(
+        width,
+        14,
+        renderCenteredTemplateLine(title_text, fontBoldTall),
+        interval=1,
+    )
+    rowTwo = snapshot(
+        width,
+        10,
+        renderCenteredTemplateLine(top_text, fontBold),
+        interval=1,
+    )
+    rowThree = snapshot(
+        width,
+        10,
+        renderCenteredTemplateLine(middle_text, font),
+        interval=1,
+    )
+    rowFour = snapshot(
+        width,
+        10,
+        renderStations(bottom_text, initial_pause_frames=50),
+        interval=0.02,
+    )
+
+    if len(virtualViewport._hotspots) > 0:
+        for vhotspot, xy in virtualViewport._hotspots:
+            virtualViewport.remove_hotspot(vhotspot, xy)
+
+    virtualViewport.add_hotspot(rowOne, (0, 0))
+    virtualViewport.add_hotspot(rowTwo, (0, 18))
+    virtualViewport.add_hotspot(rowThree, (0, 32))
+    virtualViewport.add_hotspot(rowFour, (0, 46))
 
     return virtualViewport
 
@@ -1211,6 +1283,7 @@ try:
         config["transport"]["modes"],
         config["adsb"]["enabled"],
         config["planeAlert"]["enabled"],
+        config["alerts"]["enabled"],
     )
     modeState = build_mode_state(transportModes, time.monotonic())
     refreshExecutor = ThreadPoolExecutor(max_workers=3)
@@ -1233,6 +1306,11 @@ try:
             float(config["planeAlert"]["refreshTime"]),
             refreshExecutor,
         )
+
+    alertListener = None
+    if config["alerts"]["enabled"]:
+        alertListener = MqttAlertListener(config["alerts"])
+        alertListener.start()
 
     for cache_mode in set(transportModes + [config["transport"]["fallbackMode"]]):
         if cache_mode in displayCaches:
@@ -1259,6 +1337,7 @@ try:
     timeAtStart = 0
     timeNow = time.time()
     timeFPS = time.time()
+    activeAlertKey = ""
 
     blankHours = []
     if config['hoursPattern'].match(config['screenBlankHours']):
@@ -1289,7 +1368,10 @@ try:
                 if modeState.active_mode == "adsb":
                     refreshInterval = config["adsb"]["refreshTime"]
                 elif modeState.active_mode == "plane-alert":
-                    refreshInterval = config["transport"]["modeSwitchInterval"]
+                    refreshInterval = max(
+                        1,
+                        int(float(config["loopDepartureInterval"]) * 1.5),
+                    )
 
                 now_monotonic = time.monotonic()
                 for cache_mode in {
@@ -1299,6 +1381,36 @@ try:
                 }:
                     if cache_mode in displayCaches:
                         displayCaches[cache_mode].refresh_if_due(now_monotonic)
+
+                activeAlert = None
+                if alertListener is not None:
+                    activeAlert = alertListener.current_alert(now_monotonic)
+
+                if activeAlert is not None:
+                    if activeAlert.key != activeAlertKey:
+                        virtual = drawAlertSignage(
+                            device,
+                            width=widgetWidth,
+                            height=widgetHeight,
+                            alert=activeAlert,
+                        )
+                        if config['dualScreen']:
+                            virtual1 = drawAlertSignage(
+                                device1,
+                                width=widgetWidth,
+                                height=widgetHeight,
+                                alert=activeAlert,
+                            )
+                        activeAlertKey = activeAlert.key
+                    timeNow = time.time()
+                    virtual.refresh()
+                    if config['dualScreen']:
+                        virtual1.refresh()
+                    continue
+
+                if activeAlertKey:
+                    activeAlertKey = ""
+                    timeAtStart = 0
 
                 if timeNow - timeAtStart >= refreshInterval:
                     # check if debug mode is enabled
@@ -1441,6 +1553,8 @@ except KeyboardInterrupt:
 except ValueError as err:
     print(f"Error: {err}")
 finally:
+    if "alertListener" in locals() and alertListener is not None:
+        alertListener.stop()
     if "refreshExecutor" in locals():
         refreshExecutor.shutdown(wait=False, cancel_futures=True)
 # except KeyError as err:

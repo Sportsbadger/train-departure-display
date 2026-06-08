@@ -12,6 +12,7 @@ def test_adsb_config_defaults_to_disabled_train_only(monkeypatch):
         "adsbEnabled",
         "transportModes",
         "modeSwitchInterval",
+        "lastLineText",
         "adsbHomeLat",
         "adsbHomeLon",
         "adsbUserAgent",
@@ -27,6 +28,20 @@ def test_adsb_config_defaults_to_disabled_train_only(monkeypatch):
         "planeAlertEnabled",
         "planeAlertSourceUrl",
         "planeAlertFetchTimeout",
+        "planeAlertTopLeftTemplate",
+        "planeAlertTopRightTemplate",
+        "planeAlertScrollTemplate",
+        "planeAlertNextLeftTemplate",
+        "planeAlertNextRightTemplate",
+        "alertsEnabled",
+        "alertsMqttHost",
+        "alertsMqttPort",
+        "alertsMqttTopic",
+        "alertsDisplayDuration",
+        "alertsTitleTemplate",
+        "alertsTopTemplate",
+        "alertsMiddleTemplate",
+        "alertsBottomTemplate",
     ]:
         monkeypatch.delenv(key, raising=False)
 
@@ -35,6 +50,7 @@ def test_adsb_config_defaults_to_disabled_train_only(monkeypatch):
     assert config["adsb"]["enabled"] is False
     assert config["transport"]["modes"] == "train"
     assert config["transport"]["modeSwitchInterval"] == 300
+    assert config["transport"]["lastLineText"] == "****Last Line****"
     assert config["adsb"]["homeLat"] is None
     assert config["adsb"]["homeLon"] is None
     assert config["adsb"]["userAgent"].startswith("Mozilla/5.0")
@@ -48,14 +64,29 @@ def test_adsb_config_defaults_to_disabled_train_only(monkeypatch):
     assert config["adsb"]["nextLeftTemplate"] == "{loop_aircraft}"
     assert config["adsb"]["nextRightTemplate"] == "{loop_info}"
     assert config["planeAlert"]["enabled"] is False
-    assert "planefence/pa_query.php" in config["planeAlert"]["sourceUrl"]
+    assert ":8088/plane-alert/pa_query.php" in config["planeAlert"]["sourceUrl"]
     assert config["planeAlert"]["fetchTimeout"] == 15.0
+    assert config["planeAlert"]["topLeftTemplate"] == "{summary_left}"
+    assert config["planeAlert"]["topRightTemplate"] == "{summary_right}"
+    assert config["planeAlert"]["scrollTemplate"] == "{detail}"
+    assert config["planeAlert"]["nextLeftTemplate"] == "{loop_alert}"
+    assert config["planeAlert"]["nextRightTemplate"] == "{loop_info}"
+    assert config["alerts"]["enabled"] is False
+    assert config["alerts"]["mqttHost"] == "127.0.0.1"
+    assert config["alerts"]["mqttPort"] == 1883
+    assert config["alerts"]["mqttTopic"] == "plane-alert/alerts/#"
+    assert config["alerts"]["displayDuration"] == 20.0
+    assert config["alerts"]["titleTemplate"] == "{title}"
+    assert config["alerts"]["topTemplate"] == "{headline}"
+    assert config["alerts"]["middleTemplate"] == "{equipment}  {name}"
+    assert config["alerts"]["bottomTemplate"] == "{detail}"
 
 
 def test_adsb_config_parses_enabled_values(monkeypatch):
     monkeypatch.setenv("adsbEnabled", "True")
     monkeypatch.setenv("transportModes", "train,adsb")
     monkeypatch.setenv("modeSwitchInterval", "60")
+    monkeypatch.setenv("lastLineText", "-- END --")
     monkeypatch.setenv("adsbHomeLat", "51.5")
     monkeypatch.setenv("adsbHomeLon", "-0.1")
     monkeypatch.setenv("adsbFetchTimeout", "0")
@@ -74,12 +105,31 @@ def test_adsb_config_parses_enabled_values(monkeypatch):
     monkeypatch.setenv("planeAlertFetchTimeout", "0")
     monkeypatch.setenv("planeAlertDisplayCount", "0")
     monkeypatch.setenv("planeAlertMaxAgeHours", "12")
+    monkeypatch.setenv("planeAlertTopLeftTemplate", "{display_name}")
+    monkeypatch.setenv("planeAlertTopRightTemplate", "{tail_or_hex}")
+    monkeypatch.setenv("planeAlertScrollTemplate", "{detail}")
+    monkeypatch.setenv(
+        "planeAlertNextLeftTemplate",
+        "{position_ordinal} {display_name}",
+    )
+    monkeypatch.setenv("planeAlertNextRightTemplate", "{equipment} {time}")
+    monkeypatch.setenv("alertsEnabled", "True")
+    monkeypatch.setenv("alertsMqttHost", "mqtt.example.test")
+    monkeypatch.setenv("alertsMqttPort", "0")
+    monkeypatch.setenv("alertsMqttTopic", "custom/alerts/#")
+    monkeypatch.setenv("alertsMqttQos", "9")
+    monkeypatch.setenv("alertsDisplayDuration", "0")
+    monkeypatch.setenv("alertsTitleTemplate", "ALERT")
+    monkeypatch.setenv("alertsTopTemplate", "{display_name}")
+    monkeypatch.setenv("alertsMiddleTemplate", "{equipment}")
+    monkeypatch.setenv("alertsBottomTemplate", "{raw}")
 
     config = loadConfig()
 
     assert config["adsb"]["enabled"] is True
     assert config["transport"]["modes"] == "train,adsb"
     assert config["transport"]["modeSwitchInterval"] == 60
+    assert config["transport"]["lastLineText"] == "-- END --"
     assert config["adsb"]["homeLat"] == 51.5
     assert config["adsb"]["homeLon"] == -0.1
     assert config["adsb"]["fetchTimeout"] == 0.1
@@ -98,3 +148,21 @@ def test_adsb_config_parses_enabled_values(monkeypatch):
     assert config["planeAlert"]["fetchTimeout"] == 0.1
     assert config["planeAlert"]["displayCount"] == 1
     assert config["planeAlert"]["maxAgeHours"] == 12.0
+    assert config["planeAlert"]["topLeftTemplate"] == "{display_name}"
+    assert config["planeAlert"]["topRightTemplate"] == "{tail_or_hex}"
+    assert config["planeAlert"]["scrollTemplate"] == "{detail}"
+    assert (
+        config["planeAlert"]["nextLeftTemplate"]
+        == "{position_ordinal} {display_name}"
+    )
+    assert config["planeAlert"]["nextRightTemplate"] == "{equipment} {time}"
+    assert config["alerts"]["enabled"] is True
+    assert config["alerts"]["mqttHost"] == "mqtt.example.test"
+    assert config["alerts"]["mqttPort"] == 1
+    assert config["alerts"]["mqttTopic"] == "custom/alerts/#"
+    assert config["alerts"]["mqttQos"] == 2
+    assert config["alerts"]["displayDuration"] == 1.0
+    assert config["alerts"]["titleTemplate"] == "ALERT"
+    assert config["alerts"]["topTemplate"] == "{display_name}"
+    assert config["alerts"]["middleTemplate"] == "{equipment}"
+    assert config["alerts"]["bottomTemplate"] == "{raw}"
