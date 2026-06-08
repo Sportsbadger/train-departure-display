@@ -59,6 +59,23 @@ def _env_optional_float(
     return float(value)
 
 
+def _plane_alert_max_age_minutes() -> float | None:
+    for name in ("planeAlertMaxAgeMinutes", "planeAlertMaxAge"):
+        value = os.getenv(name)
+        if value is None:
+            continue
+        if value == "":
+            return None
+        return float(value)
+
+    legacy_hours = os.getenv("planeAlertMaxAgeHours")
+    if legacy_hours is None:
+        return DEFAULT_PLANE_ALERT_MAX_AGE_MINUTES
+    if legacy_hours == "":
+        return None
+    return float(legacy_hours) * 60.0
+
+
 def _env_optional_int(name: str) -> int | None:
     value = os.getenv(name)
     if value in (None, ""):
@@ -223,10 +240,7 @@ def loadConfig():
         5,
         minimum=1,
     )
-    data["planeAlert"]["maxAgeMinutes"] = _env_optional_float(
-        "planeAlertMaxAgeMinutes",
-        DEFAULT_PLANE_ALERT_MAX_AGE_MINUTES,
-    )
+    data["planeAlert"]["maxAgeMinutes"] = _plane_alert_max_age_minutes()
     data["planeAlert"]["topLeftTemplate"] = (
         os.getenv("planeAlertTopLeftTemplate")
         or DEFAULT_PLANE_ALERT_TOP_LEFT_TEMPLATE

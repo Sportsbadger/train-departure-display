@@ -29,6 +29,8 @@ def test_adsb_config_defaults_to_disabled_train_only(monkeypatch):
         "planeAlertSourceUrl",
         "planeAlertFetchTimeout",
         "planeAlertMaxAgeMinutes",
+        "planeAlertMaxAge",
+        "planeAlertMaxAgeHours",
         "planeAlertTopLeftTemplate",
         "planeAlertTopRightTemplate",
         "planeAlertScrollTemplate",
@@ -90,6 +92,36 @@ def test_plane_alert_max_age_can_be_disabled(monkeypatch):
     config = loadConfig()
 
     assert config["planeAlert"]["maxAgeMinutes"] is None
+
+
+def test_plane_alert_legacy_blank_max_age_hours_still_disables(monkeypatch):
+    monkeypatch.delenv("planeAlertMaxAgeMinutes", raising=False)
+    monkeypatch.delenv("planeAlertMaxAge", raising=False)
+    monkeypatch.setenv("planeAlertMaxAgeHours", "")
+
+    config = loadConfig()
+
+    assert config["planeAlert"]["maxAgeMinutes"] is None
+
+
+def test_plane_alert_max_age_aliases_are_minutes(monkeypatch):
+    monkeypatch.delenv("planeAlertMaxAgeMinutes", raising=False)
+    monkeypatch.delenv("planeAlertMaxAgeHours", raising=False)
+    monkeypatch.setenv("planeAlertMaxAge", "7")
+
+    config = loadConfig()
+
+    assert config["planeAlert"]["maxAgeMinutes"] == 7.0
+
+
+def test_plane_alert_legacy_max_age_hours_converts_to_minutes(monkeypatch):
+    monkeypatch.delenv("planeAlertMaxAgeMinutes", raising=False)
+    monkeypatch.delenv("planeAlertMaxAge", raising=False)
+    monkeypatch.setenv("planeAlertMaxAgeHours", "0.25")
+
+    config = loadConfig()
+
+    assert config["planeAlert"]["maxAgeMinutes"] == 15.0
 
 
 def test_adsb_config_parses_enabled_values(monkeypatch):
