@@ -416,20 +416,41 @@ def _parse_plane_alert_item(item: Mapping[str, Any]) -> PlaneAlert | None:
         call=call,
         name=_first_clean_text(item, "name", "owner"),
         equipment=_first_clean_text(item, "equipment", "type", "aircraft_type"),
-        timestamp=_parse_timestamp(
-            _first_clean_text(
-                item,
-                "timestamp",
-                "first_seen",
-                "last_seen",
-                "time:time_at_mindist",
-                "time_at_mindist",
-                "time",
-            ),
-        ),
+        timestamp=_parse_plane_alert_timestamp(item),
         lat=_optional_float(item.get("lat", item.get("latitude"))),
         lon=_optional_float(item.get("lon", item.get("longitude"))),
     )
+
+
+def _parse_plane_alert_timestamp(item: Mapping[str, Any]) -> datetime | None:
+    preferred_timestamp = _first_parsed_timestamp(
+        item,
+        "last_seen",
+        "lastseen",
+        "lastSeen",
+        "seen",
+        "updated",
+        "updated_at",
+        "timestamp",
+        "time:time_at_mindist",
+        "time_at_mindist",
+        "time",
+    )
+    if preferred_timestamp is not None:
+        return preferred_timestamp
+
+    return _first_parsed_timestamp(item, "first_seen", "firstseen", "firstSeen")
+
+
+def _first_parsed_timestamp(
+    item: Mapping[str, Any],
+    *keys: str,
+) -> datetime | None:
+    for key in keys:
+        parsed = _parse_timestamp(_clean_text(item.get(key)))
+        if parsed is not None:
+            return parsed
+    return None
 
 
 def _passes_age_filter(

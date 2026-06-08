@@ -125,6 +125,28 @@ def test_parse_plane_alerts_sorts_filters_and_accepts_wrapped_records():
     assert "pos 51.500,-0.100" in detail_text
 
 
+def test_parse_plane_alerts_prefers_last_seen_for_age_filter():
+    payload = [
+        {
+            "hex": "AE1234",
+            "tail": "N123AB",
+            "callsign": "SAM123",
+            "first_seen": "2026/06/06 08:00:00",
+            "last_seen": "2026/06/06 11:55:00",
+        }
+    ]
+
+    result = parse_plane_alerts(
+        payload,
+        max_age_minutes=10,
+        limit=5,
+        now=datetime(2026, 6, 6, 12, 0, 0),
+    )
+
+    assert len(result) == 1
+    assert result[0].timestamp == datetime(2026, 6, 6, 11, 55, 0)
+
+
 def test_parse_plane_alerts_accepts_docker_planefence_query_keys():
     payload = [
         {
