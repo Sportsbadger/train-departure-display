@@ -288,7 +288,7 @@ def _plane_alert_template_value(
         case "summary_left":
             return build_plane_alert_summary_left_text(alert)
         case "summary_right":
-            return alert.hex.upper() or "------"
+            return build_plane_alert_summary_right_text(alert)
         case "summary":
             return build_plane_alert_summary_text(alert)
         case "detail":
@@ -307,15 +307,17 @@ def _plane_alert_template_value(
 
 def build_plane_alert_summary_left_text(alert: PlaneAlert) -> str:
     """Build the left-side top-row summary for a Plane-Alert record."""
-    return "  ".join(
-        part
-        for part in [
-            alert.display_name,
-            alert.tail or alert.hex.upper(),
-            format_plane_alert_timestamp(alert.timestamp),
-        ]
-        if part
-    )
+    return alert.display_name
+
+
+def build_plane_alert_summary_right_text(alert: PlaneAlert) -> str:
+    """Build the right-side top-row summary for a Plane-Alert record."""
+    parts = [
+        alert.tail or alert.hex.upper(),
+        alert.equipment,
+        format_plane_alert_timestamp(alert.timestamp),
+    ]
+    return "  ".join(part for part in parts if part)
 
 
 def build_plane_alert_summary_text(alert: PlaneAlert) -> str:
@@ -324,7 +326,7 @@ def build_plane_alert_summary_text(alert: PlaneAlert) -> str:
         part
         for part in [
             build_plane_alert_summary_left_text(alert),
-            alert.hex.upper(),
+            build_plane_alert_summary_right_text(alert),
         ]
         if part
     )
@@ -337,7 +339,7 @@ def build_plane_alert_loop_alert_text(alert: PlaneAlert, position: int) -> str:
         for part in [
             _ordinal_text(position),
             alert.display_name,
-            alert.tail,
+            alert.equipment,
         ]
         if part
     )
@@ -348,7 +350,7 @@ def build_plane_alert_loop_info_text(alert: PlaneAlert) -> str:
     return "  ".join(
         part
         for part in [
-            alert.equipment or alert.name,
+            alert.tail or alert.hex.upper(),
             format_plane_alert_timestamp(alert.timestamp),
         ]
         if part
@@ -364,13 +366,14 @@ def _ordinal_text(position: int | None) -> str:
         suffix = {1: "st", 2: "nd", 3: "rd"}.get(position % 10, "th")
     return f"{position}{suffix}"
 
+
 def build_plane_alert_detail_text(alert: PlaneAlert) -> str:
     """Build the scrolling detail line for a Plane-Alert record."""
-    parts = [alert.equipment, alert.name, alert.hex.upper()]
+    parts = [alert.equipment, alert.name]
     if alert.lat is not None and alert.lon is not None:
-        parts.append(f"{alert.lat:.3f},{alert.lon:.3f}")
+        parts.append(f"pos {alert.lat:.3f},{alert.lon:.3f}")
     if alert.timestamp is not None:
-        parts.append(alert.timestamp.strftime("%d %b %H:%M"))
+        parts.append(f"seen {alert.timestamp.strftime('%d %b %H:%M')}")
     return "  ".join(part for part in parts if part)
 
 

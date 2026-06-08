@@ -649,11 +649,9 @@ def build_detail_text(aircraft: AdsbAircraft) -> str:
         format_bearing(aircraft.bearing_deg),
         format_heading(aircraft.track_deg),
         format_ground_speed(aircraft.ground_speed_kt),
-        format_true_air_speed(aircraft.true_air_speed_kt),
         format_mach(aircraft.mach),
         format_vertical_rate(aircraft.vertical_rate_fpm),
         f"sq {aircraft.squawk}" if aircraft.squawk else "",
-        aircraft.hex.upper(),
     ]
     return "  ".join(part for part in parts if part)
 

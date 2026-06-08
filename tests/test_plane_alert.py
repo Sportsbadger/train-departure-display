@@ -116,8 +116,11 @@ def test_parse_plane_alerts_sorts_filters_and_accepts_wrapped_records():
 
     assert [alert.display_name for alert in result] == ["SAM123", "RCH567"]
     assert result[0].lat == 51.5
-    assert "Boeing C-32A" in build_plane_alert_detail_text(result[0])
-    assert "AE1234" in build_plane_alert_detail_text(result[0])
+    detail_text = build_plane_alert_detail_text(result[0])
+
+    assert "Boeing C-32A" in detail_text
+    assert "AE1234" not in detail_text
+    assert "pos 51.500,-0.100" in detail_text
 
 
 def test_parse_plane_alerts_accepts_docker_planefence_query_keys():
@@ -200,14 +203,18 @@ def test_build_plane_alert_template_text_handles_defaults_and_unknowns():
         limit=1,
     )[0]
 
+    assert build_plane_alert_template_text("{summary_left}", alert) == "SAM123"
     assert (
-        build_plane_alert_template_text("{summary_left}", alert)
-        == "SAM123  N123AB  11:30"
+        build_plane_alert_template_text("{summary_right}", alert)
+        == "N123AB  Boeing C-32A  11:30"
     )
-    assert build_plane_alert_template_text("{summary_right}", alert) == "AE1234"
     assert (
         build_plane_alert_template_text("{loop_alert}", alert, 2)
-        == "2nd  SAM123  N123AB"
+        == "2nd  SAM123  Boeing C-32A"
+    )
+    assert (
+        build_plane_alert_template_text("{loop_info}", alert)
+        == "N123AB  11:30"
     )
     assert build_plane_alert_template_text("{missing}", alert) == ""
 

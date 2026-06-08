@@ -302,8 +302,8 @@ def test_enrich_aircraft_routes_adds_route_to_matching_callsign_detail():
         "BAW15  LHR-SYD    G-XLEA  A388  488kt  0nm  38000ft"
     )
     assert build_detail_text(enriched[0]) == (
-        "Airbus A380  brg 000deg  E 090  gs 450kt  tas 488kt  "
-        "mach 0.85  climb 128fpm  sq 1234  ABC123"
+        "Airbus A380  brg 000deg  E 090  gs 450kt  mach 0.85  "
+        "climb 128fpm  sq 1234"
     )
 
 
