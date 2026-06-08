@@ -67,7 +67,7 @@ def test_adsb_config_defaults_to_disabled_train_only(monkeypatch):
     assert config["planeAlert"]["enabled"] is False
     assert ":8088/plane-alert/pa_query.php" in config["planeAlert"]["sourceUrl"]
     assert config["planeAlert"]["fetchTimeout"] == 15.0
-    assert config["planeAlert"]["maxAgeHours"] == 2.0
+    assert config["planeAlert"]["maxAgeHours"] == 10.0 / 60.0
     assert config["planeAlert"]["topLeftTemplate"] == "{summary_left}"
     assert config["planeAlert"]["topRightTemplate"] == "{summary_right}"
     assert config["planeAlert"]["scrollTemplate"] == "{detail}"
