@@ -13,6 +13,7 @@ DEFAULT_PLANE_ALERT_TOP_RIGHT_TEMPLATE = "{summary_right}"
 DEFAULT_PLANE_ALERT_SCROLL_TEMPLATE = "{detail}"
 DEFAULT_PLANE_ALERT_NEXT_LEFT_TEMPLATE = "{loop_alert}"
 DEFAULT_PLANE_ALERT_NEXT_RIGHT_TEMPLATE = "{loop_info}"
+DEFAULT_PLANE_ALERT_MAX_AGE_HOURS = 2.0
 
 DEFAULT_ALERT_TITLE_TEMPLATE = "{title}"
 DEFAULT_ALERT_TOP_TEMPLATE = "{headline}"
@@ -46,9 +47,14 @@ def _env_float(
     return value
 
 
-def _env_optional_float(name: str) -> float | None:
+def _env_optional_float(
+    name: str,
+    default: float | None = None,
+) -> float | None:
     value = os.getenv(name)
-    if value in (None, ""):
+    if value is None:
+        return default
+    if value == "":
         return None
     return float(value)
 
@@ -219,6 +225,7 @@ def loadConfig():
     )
     data["planeAlert"]["maxAgeHours"] = _env_optional_float(
         "planeAlertMaxAgeHours",
+        DEFAULT_PLANE_ALERT_MAX_AGE_HOURS,
     )
     data["planeAlert"]["topLeftTemplate"] = (
         os.getenv("planeAlertTopLeftTemplate")

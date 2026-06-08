@@ -50,6 +50,8 @@ def test_fetch_plane_alert_json_sends_configured_user_agent(monkeypatch):
     assert calls["headers"]["User-Agent"] == "Mozilla/5.0 TestDisplay"
     assert "application/json" in calls["headers"]["Accept"]
     assert "gzip" in calls["headers"]["Accept-Encoding"]
+    assert calls["headers"]["Cache-Control"] == "no-cache"
+    assert calls["headers"]["Pragma"] == "no-cache"
     assert calls["timeout"] == 2.0
 
 

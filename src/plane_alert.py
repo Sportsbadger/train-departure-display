@@ -64,6 +64,8 @@ def fetch_plane_alert_json(
     headers = {
         "Accept": "application/json, text/javascript, */*; q=0.01",
         "Accept-Encoding": "gzip, deflate",
+        "Cache-Control": "no-cache",
+        "Pragma": "no-cache",
         "User-Agent": user_agent,
     }
     response = requests.get(source_url, headers=headers, timeout=timeout_s)

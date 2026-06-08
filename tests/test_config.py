@@ -28,6 +28,7 @@ def test_adsb_config_defaults_to_disabled_train_only(monkeypatch):
         "planeAlertEnabled",
         "planeAlertSourceUrl",
         "planeAlertFetchTimeout",
+        "planeAlertMaxAgeHours",
         "planeAlertTopLeftTemplate",
         "planeAlertTopRightTemplate",
         "planeAlertScrollTemplate",
@@ -66,6 +67,7 @@ def test_adsb_config_defaults_to_disabled_train_only(monkeypatch):
     assert config["planeAlert"]["enabled"] is False
     assert ":8088/plane-alert/pa_query.php" in config["planeAlert"]["sourceUrl"]
     assert config["planeAlert"]["fetchTimeout"] == 15.0
+    assert config["planeAlert"]["maxAgeHours"] == 2.0
     assert config["planeAlert"]["topLeftTemplate"] == "{summary_left}"
     assert config["planeAlert"]["topRightTemplate"] == "{summary_right}"
     assert config["planeAlert"]["scrollTemplate"] == "{detail}"
@@ -80,6 +82,14 @@ def test_adsb_config_defaults_to_disabled_train_only(monkeypatch):
     assert config["alerts"]["topTemplate"] == "{headline}"
     assert config["alerts"]["middleTemplate"] == "{equipment}  {name}"
     assert config["alerts"]["bottomTemplate"] == "{detail}"
+
+
+def test_plane_alert_max_age_can_be_disabled(monkeypatch):
+    monkeypatch.setenv("planeAlertMaxAgeHours", "")
+
+    config = loadConfig()
+
+    assert config["planeAlert"]["maxAgeHours"] is None
 
 
 def test_adsb_config_parses_enabled_values(monkeypatch):
