@@ -982,7 +982,7 @@ def drawPlaneAlertSignage(
     rowOneA = snapshot(
         width,
         10,
-        renderTemplateSummary(top_left_text, top_right_text, firstFont),
+        renderAdsbSummary(top_left_text, top_right_text, firstFont),
         interval=loop_frame_interval,
     )
     rowTwoB = snapshot(
@@ -1061,7 +1061,7 @@ def drawPlaneAlertSignage(
     rowTime = snapshot(
         width,
         14,
-        renderTimeWithModeLabel("Plane Alert"),
+        renderTimeWithModeLabel("PLANE"),
         interval=0.1,
     )
 

@@ -252,3 +252,54 @@ def test_select_secondary_plane_alert_display_rows_adds_last_line_marker():
     assert select_secondary_plane_alert_display_rows(alerts, featured_index=2) == [
         (None, None),
     ]
+
+
+def test_ensure_plane_alert_api_url_adds_json_type_once():
+    from plane_alert import ensure_plane_alert_api_url
+
+    assert ensure_plane_alert_api_url(
+        "http://host/plane-alert/pa_query.php?timestamp=.*"
+    ) == "http://host/plane-alert/pa_query.php?timestamp=.%2A&type=json"
+    assert ensure_plane_alert_api_url(
+        "http://host/plane-alert/pa_query.php?timestamp=.*&type=csv"
+    ).endswith("timestamp=.*&type=csv")
+
+
+def test_decode_plane_alert_response_accepts_utf8_sig_csv():
+    from plane_alert import decode_plane_alert_response
+
+    payload = (
+        "\ufeffhex,tail,name,equipment,timestamp,call,lat,lon\n"
+        'AE1234,N123AB,"USAF, Special",Boeing C-32A,'
+        "2026/06/06 11:30:00,@SAM123,51.5,-0.1\n"
+    )
+
+    result = parse_plane_alerts(
+        decode_plane_alert_response(payload),
+        max_age_hours=None,
+        limit=5,
+    )
+
+    assert len(result) == 1
+    assert result[0].hex == "AE1234"
+    assert result[0].name == "USAF, Special"
+    assert result[0].display_name == "SAM123"
+    assert result[0].lat == 51.5
+
+
+def test_parse_plane_alerts_deduplicates_with_more_complete_record():
+    payload = [
+        {"hex": "AE1234", "timestamp": "2026/06/06 11:30:00"},
+        {
+            "hex": "AE1234",
+            "tail": "N123AB",
+            "equipment": "Boeing C-32A",
+            "timestamp": "2026/06/06 11:30:00",
+        },
+    ]
+
+    result = parse_plane_alerts(payload, max_age_hours=None, limit=5)
+
+    assert len(result) == 1
+    assert result[0].tail == "N123AB"
+    assert result[0].equipment == "Boeing C-32A"
