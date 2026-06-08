@@ -850,67 +850,39 @@ def drawAdsbSignage(device, width, height, aircraft):
     def get_adsb_loop_render_state():
         return loop_display_rows
 
-    right_info_width = max(
-        (
-            int(font.getlength(right_text))
-            for _position, _plane, _left_text, right_text in loop_display_rows
-        ),
-        default=0,
-    )
-
-    def draw_loop_aircraft(
-        draw,
-        y_offset,
-        _position,
-        plane,
-        left_text,
-        _right_text,
-        width,
-    ):
-        text_width, _, bitmap = cachedBitmapText(left_text, font)
-        if plane is None:
-            draw.bitmap(
-                (max(0, (width - text_width) / 2), y_offset),
-                bitmap,
-                fill="yellow",
-            )
-            return
-        draw.bitmap((0, y_offset), bitmap, fill="yellow")
-
-    def draw_loop_track(
-        draw,
-        y_offset,
-        _position,
-        _plane,
-        _left_text,
-        right_text,
-        width,
-    ):
-        text_width, _, bitmap = cachedBitmapText(right_text, font)
-        draw.bitmap((width - text_width, y_offset), bitmap, fill="yellow")
-
-    def render_adsb_loop_block(renderer):
-        def drawText(draw, width, *_):
+    def render_adsb_loop_block() -> Callable[..., None]:
+        def drawText(draw: ImageDraw.ImageDraw, width: int, *_: Any) -> None:
             current = get_adsb_loop_render_state()
-            for idx, row in enumerate(current):
-                renderer(draw, idx * loop_row_gap, *row, width)
+            for idx, (_position, plane, left_text, right_text) in enumerate(current):
+                y_offset = idx * loop_row_gap
+                left_width, _, left_bitmap = cachedBitmapText(left_text, font)
+                if plane is None:
+                    draw.bitmap(
+                        (max(0, (width - left_width) / 2), y_offset),
+                        left_bitmap,
+                        fill="yellow",
+                    )
+                    continue
+
+                draw.bitmap((0, y_offset), left_bitmap, fill="yellow")
+                if not right_text:
+                    continue
+                right_width, _, right_bitmap = cachedBitmapText(right_text, font)
+                draw.bitmap(
+                    (max(0, width - right_width), y_offset),
+                    right_bitmap,
+                    fill="yellow",
+                )
 
         return drawText
 
     if len(loop_display_rows) > 0:
-        rowThreeA = snapshot(
+        rowThree = snapshot(
             width,
             loop_block_height,
-            render_adsb_loop_block(draw_loop_aircraft),
+            render_adsb_loop_block(),
             interval=loop_frame_interval,
         )
-        if right_info_width > 0:
-            rowThreeB = snapshot(
-                right_info_width,
-                loop_block_height,
-                render_adsb_loop_block(draw_loop_track),
-                interval=loop_frame_interval,
-            )
     rowTime = snapshot(
         width,
         14,
@@ -932,9 +904,7 @@ def drawAdsbSignage(device, width, height, aircraft):
     virtualViewport.add_hotspot(rowTwoB, (0, 12))
 
     if len(loop_display_rows) > 0:
-        virtualViewport.add_hotspot(rowThreeA, (0, 24))
-        if right_info_width > 0:
-            virtualViewport.add_hotspot(rowThreeB, (width - right_info_width, 24))
+        virtualViewport.add_hotspot(rowThree, (0, 24))
 
     virtualViewport.add_hotspot(rowTime, (0, 50))
 
@@ -1049,77 +1019,44 @@ def drawPlaneAlertSignage(
         for position, alert in loop_departures
     ]
 
-    right_info_width = max(
-        (
-            int(font.getlength(right_text))
-            for _position, _alert, _left_text, right_text in loop_display_rows
-        ),
-        default=0,
-    )
-
     def get_plane_alert_loop_render_state() -> list[
         tuple[int | None, Any | None, str, str]
     ]:
         return loop_display_rows
 
-    def draw_loop_alert(
-        draw: ImageDraw.ImageDraw,
-        y_offset: int,
-        _position: int | None,
-        alert: Any | None,
-        left_text: str,
-        _right_text: str,
-        width: int,
-    ) -> None:
-        text_width, _, bitmap = cachedBitmapText(left_text, font)
-        if alert is None:
-            draw.bitmap(
-                (max(0, (width - text_width) / 2), y_offset),
-                bitmap,
-                fill="yellow",
-            )
-            return
-        draw.bitmap((0, y_offset), bitmap, fill="yellow")
-
-    def draw_loop_info(
-        draw: ImageDraw.ImageDraw,
-        y_offset: int,
-        _position: int | None,
-        _alert: Any | None,
-        _left_text: str,
-        right_text: str,
-        width: int,
-    ) -> None:
-        text_width, _, bitmap = cachedBitmapText(right_text, font)
-        draw.bitmap((width - text_width, y_offset), bitmap, fill="yellow")
-
-    def render_plane_alert_loop_block(
-        renderer: Callable[
-            [ImageDraw.ImageDraw, int, int | None, Any | None, str, str, int],
-            None,
-        ],
-    ) -> Callable[..., None]:
+    def render_plane_alert_loop_block() -> Callable[..., None]:
         def drawText(draw: ImageDraw.ImageDraw, width: int, *_: Any) -> None:
             current = get_plane_alert_loop_render_state()
-            for idx, row in enumerate(current):
-                renderer(draw, idx * loop_row_gap, *row, width)
+            for idx, (_position, alert, left_text, right_text) in enumerate(current):
+                y_offset = idx * loop_row_gap
+                left_width, _, left_bitmap = cachedBitmapText(left_text, font)
+                if alert is None:
+                    draw.bitmap(
+                        (max(0, (width - left_width) / 2), y_offset),
+                        left_bitmap,
+                        fill="yellow",
+                    )
+                    continue
+
+                draw.bitmap((0, y_offset), left_bitmap, fill="yellow")
+                if not right_text:
+                    continue
+                right_width, _, right_bitmap = cachedBitmapText(right_text, font)
+                draw.bitmap(
+                    (max(0, width - right_width), y_offset),
+                    right_bitmap,
+                    fill="yellow",
+                )
 
         return drawText
 
     if len(loop_display_rows) > 0:
-        rowThreeA = snapshot(
+        rowThree = snapshot(
             width,
             loop_block_height,
-            render_plane_alert_loop_block(draw_loop_alert),
+            render_plane_alert_loop_block(),
             interval=loop_frame_interval,
         )
-        if right_info_width > 0:
-            rowThreeB = snapshot(
-                right_info_width,
-                loop_block_height,
-                render_plane_alert_loop_block(draw_loop_info),
-                interval=loop_frame_interval,
-            )
 
     rowTime = snapshot(
         width,
@@ -1139,9 +1076,7 @@ def drawPlaneAlertSignage(
     virtualViewport.add_hotspot(rowTwoB, (0, 12))
 
     if len(loop_display_rows) > 0:
-        virtualViewport.add_hotspot(rowThreeA, (0, 24))
-        if right_info_width > 0:
-            virtualViewport.add_hotspot(rowThreeB, (width - right_info_width, 24))
+        virtualViewport.add_hotspot(rowThree, (0, 24))
 
     virtualViewport.add_hotspot(rowTime, (0, 50))
 
