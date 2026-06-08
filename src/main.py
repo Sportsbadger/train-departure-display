@@ -337,7 +337,7 @@ def loadPlaneAlertData(planeAlertConfig: dict[str, Any]):
         )
         return parse_plane_alerts(
             payload,
-            planeAlertConfig["maxAgeHours"],
+            planeAlertConfig["maxAgeMinutes"],
             int(planeAlertConfig["displayCount"]),
         )
     except requests.Timeout as err:

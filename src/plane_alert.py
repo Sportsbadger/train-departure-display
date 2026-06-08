@@ -82,7 +82,7 @@ def fetch_plane_alert_json(
 
 def parse_plane_alerts(
     payload: Any,
-    max_age_hours: float | None,
+    max_age_minutes: float | None,
     limit: int,
     now: datetime | None = None,
 ) -> list[PlaneAlert]:
@@ -90,7 +90,7 @@ def parse_plane_alerts(
 
     Args:
         payload: Decoded ``pa_query.php`` JSON payload.
-        max_age_hours: Optional maximum alert age in hours.
+        max_age_minutes: Optional maximum alert age in minutes.
         limit: Maximum number of alerts to return.
         now: Optional current time used by tests.
 
@@ -111,7 +111,7 @@ def parse_plane_alerts(
     filtered = [
         alert
         for alert in alerts
-        if _passes_age_filter(alert, max_age_hours, now)
+        if _passes_age_filter(alert, max_age_minutes, now)
     ]
     return sorted(
         filtered,
@@ -434,13 +434,13 @@ def _parse_plane_alert_item(item: Mapping[str, Any]) -> PlaneAlert | None:
 
 def _passes_age_filter(
     alert: PlaneAlert,
-    max_age_hours: float | None,
+    max_age_minutes: float | None,
     now: datetime | None,
 ) -> bool:
-    if max_age_hours is None or alert.timestamp is None:
+    if max_age_minutes is None or alert.timestamp is None:
         return True
     comparison_now = (now or datetime.now()).replace(tzinfo=None)
-    return comparison_now - alert.timestamp <= timedelta(hours=max_age_hours)
+    return comparison_now - alert.timestamp <= timedelta(minutes=max_age_minutes)
 
 
 def _parse_timestamp(value: str) -> datetime | None:

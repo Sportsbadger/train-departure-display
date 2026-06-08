@@ -111,7 +111,7 @@ def test_parse_plane_alerts_sorts_filters_and_accepts_wrapped_records():
 
     result = parse_plane_alerts(
         payload,
-        max_age_hours=24,
+        max_age_minutes=24 * 60,
         limit=5,
         now=datetime(2026, 6, 6, 12, 0, 0),
     )
@@ -140,7 +140,7 @@ def test_parse_plane_alerts_accepts_docker_planefence_query_keys():
         }
     ]
 
-    result = parse_plane_alerts(payload, max_age_hours=None, limit=5)
+    result = parse_plane_alerts(payload, max_age_minutes=None, limit=5)
 
     assert len(result) == 1
     assert result[0].hex == "AE1234"
@@ -156,7 +156,7 @@ def test_parse_plane_alerts_accepts_mapping_of_records_and_limit():
         "AE0002": {"hex": "AE0002", "timestamp": "2026/06/06 11:00:00"},
     }
 
-    result = parse_plane_alerts(payload, max_age_hours=None, limit=1)
+    result = parse_plane_alerts(payload, max_age_minutes=None, limit=1)
 
     assert len(result) == 1
     assert result[0].hex == "AE0002"
@@ -164,7 +164,7 @@ def test_parse_plane_alerts_accepts_mapping_of_records_and_limit():
 
 def test_parse_plane_alerts_rejects_unsupported_payload_shape():
     with pytest.raises(PlaneAlertDataError, match="records list"):
-        parse_plane_alerts({"count": 1}, max_age_hours=None, limit=5)
+        parse_plane_alerts({"count": 1}, max_age_minutes=None, limit=5)
 
 
 def test_format_plane_alert_timestamp_handles_unknown():
@@ -179,7 +179,7 @@ def test_select_plane_alert_scroll_alerts_skips_highlighted_record():
             {"hex": "AE0002", "timestamp": "2026/06/06 09:00:00"},
             {"hex": "AE0003", "timestamp": "2026/06/06 08:00:00"},
         ],
-        max_age_hours=None,
+        max_age_minutes=None,
         limit=3,
     )
 
@@ -201,7 +201,7 @@ def test_build_plane_alert_template_text_handles_defaults_and_unknowns():
                 "timestamp": "2026/06/06 11:30:00",
             }
         ],
-        max_age_hours=None,
+        max_age_minutes=None,
         limit=1,
     )[0]
 
@@ -228,7 +228,7 @@ def test_select_featured_plane_alert_index_cycles_one_alert_at_a_time():
             {"hex": "AE0002", "timestamp": "2026/06/06 09:00:00"},
             {"hex": "AE0003", "timestamp": "2026/06/06 08:00:00"},
         ],
-        max_age_hours=None,
+        max_age_minutes=None,
         limit=3,
     )
 
@@ -245,7 +245,7 @@ def test_select_secondary_plane_alert_display_rows_adds_last_line_marker():
             {"hex": "AE0002", "timestamp": "2026/06/06 09:00:00"},
             {"hex": "AE0003", "timestamp": "2026/06/06 08:00:00"},
         ],
-        max_age_hours=None,
+        max_age_minutes=None,
         limit=3,
     )
 

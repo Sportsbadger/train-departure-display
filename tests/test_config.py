@@ -28,7 +28,7 @@ def test_adsb_config_defaults_to_disabled_train_only(monkeypatch):
         "planeAlertEnabled",
         "planeAlertSourceUrl",
         "planeAlertFetchTimeout",
-        "planeAlertMaxAgeHours",
+        "planeAlertMaxAgeMinutes",
         "planeAlertTopLeftTemplate",
         "planeAlertTopRightTemplate",
         "planeAlertScrollTemplate",
@@ -67,7 +67,7 @@ def test_adsb_config_defaults_to_disabled_train_only(monkeypatch):
     assert config["planeAlert"]["enabled"] is False
     assert ":8088/plane-alert/pa_query.php" in config["planeAlert"]["sourceUrl"]
     assert config["planeAlert"]["fetchTimeout"] == 15.0
-    assert config["planeAlert"]["maxAgeHours"] == 10.0 / 60.0
+    assert config["planeAlert"]["maxAgeMinutes"] == 10.0
     assert config["planeAlert"]["topLeftTemplate"] == "{summary_left}"
     assert config["planeAlert"]["topRightTemplate"] == "{summary_right}"
     assert config["planeAlert"]["scrollTemplate"] == "{detail}"
@@ -85,11 +85,11 @@ def test_adsb_config_defaults_to_disabled_train_only(monkeypatch):
 
 
 def test_plane_alert_max_age_can_be_disabled(monkeypatch):
-    monkeypatch.setenv("planeAlertMaxAgeHours", "")
+    monkeypatch.setenv("planeAlertMaxAgeMinutes", "")
 
     config = loadConfig()
 
-    assert config["planeAlert"]["maxAgeHours"] is None
+    assert config["planeAlert"]["maxAgeMinutes"] is None
 
 
 def test_adsb_config_parses_enabled_values(monkeypatch):
@@ -114,7 +114,7 @@ def test_adsb_config_parses_enabled_values(monkeypatch):
     monkeypatch.setenv("planeAlertEnabled", "True")
     monkeypatch.setenv("planeAlertFetchTimeout", "0")
     monkeypatch.setenv("planeAlertDisplayCount", "0")
-    monkeypatch.setenv("planeAlertMaxAgeHours", "12")
+    monkeypatch.setenv("planeAlertMaxAgeMinutes", "12")
     monkeypatch.setenv("planeAlertTopLeftTemplate", "{display_name}")
     monkeypatch.setenv("planeAlertTopRightTemplate", "{tail_or_hex}")
     monkeypatch.setenv("planeAlertScrollTemplate", "{detail}")
@@ -157,7 +157,7 @@ def test_adsb_config_parses_enabled_values(monkeypatch):
     assert config["planeAlert"]["enabled"] is True
     assert config["planeAlert"]["fetchTimeout"] == 0.1
     assert config["planeAlert"]["displayCount"] == 1
-    assert config["planeAlert"]["maxAgeHours"] == 12.0
+    assert config["planeAlert"]["maxAgeMinutes"] == 12.0
     assert config["planeAlert"]["topLeftTemplate"] == "{display_name}"
     assert config["planeAlert"]["topRightTemplate"] == "{tail_or_hex}"
     assert config["planeAlert"]["scrollTemplate"] == "{detail}"
