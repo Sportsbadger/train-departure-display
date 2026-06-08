@@ -18,6 +18,7 @@ DEFAULT_ALERT_TITLE_TEMPLATE = "{title}"
 DEFAULT_ALERT_TOP_TEMPLATE = "{headline}"
 DEFAULT_ALERT_MIDDLE_TEMPLATE = "{equipment}  {name}"
 DEFAULT_ALERT_BOTTOM_TEMPLATE = "{detail}"
+DEFAULT_LAST_LINE_TEXT = "****Last Line****"
 
 
 def _env_bool(name: str, default: bool = False) -> bool:
@@ -279,6 +280,9 @@ def loadConfig():
     )
 
     data["transport"]["modes"] = os.getenv("transportModes") or "train"
+    data["transport"]["lastLineText"] = (
+        os.getenv("lastLineText") or DEFAULT_LAST_LINE_TEXT
+    )
     data["transport"]["modeSwitchInterval"] = _env_int(
         "modeSwitchInterval",
         300,

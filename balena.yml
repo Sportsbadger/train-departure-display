@@ -81,6 +81,7 @@ data:
     - alertsEnabled: False
     - transportModes: train
     - modeSwitchInterval: 300
+    - lastLineText: '****Last Line****'
     - planeAlertSourceUrl: http://192.168.1.74:8088/plane-alert/pa_query.php?timestamp=.*&type=json
     - planeAlertRefreshTime: 30
     - planeAlertDisplayCount: 5

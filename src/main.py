@@ -14,7 +14,6 @@ from alerts import (
     build_alert_template_text,
 )
 from adsb import (
-    LAST_LINE_TEXT as ADSB_LAST_LINE_TEXT,
     AdsbDataError,
     AdsbRouteDataError,
     build_aircraft_template_text,
@@ -27,7 +26,6 @@ from adsb import (
 )
 from config import loadConfig
 from plane_alert import (
-    LAST_LINE_TEXT as PLANE_ALERT_LAST_LINE_TEXT,
     PlaneAlertDataError,
     build_plane_alert_template_text,
     fetch_plane_alert_json,
@@ -831,10 +829,14 @@ def drawAdsbSignage(device, width, height, aircraft):
         (
             position,
             plane,
-            ADSB_LAST_LINE_TEXT if plane is None else build_aircraft_template_text(
-                next_left_template,
-                plane,
-                position,
+            (
+                config["transport"]["lastLineText"]
+                if plane is None
+                else build_aircraft_template_text(
+                    next_left_template,
+                    plane,
+                    position,
+                )
             ),
             "" if plane is None else build_aircraft_template_text(
                 next_right_template,
@@ -860,12 +862,19 @@ def drawAdsbSignage(device, width, height, aircraft):
         draw,
         y_offset,
         _position,
-        _plane,
+        plane,
         left_text,
         _right_text,
-        _width,
+        width,
     ):
-        _, _, bitmap = cachedBitmapText(left_text, font)
+        text_width, _, bitmap = cachedBitmapText(left_text, font)
+        if plane is None:
+            draw.bitmap(
+                (max(0, (width - text_width) / 2), y_offset),
+                bitmap,
+                fill="yellow",
+            )
+            return
         draw.bitmap((0, y_offset), bitmap, fill="yellow")
 
     def draw_loop_track(
@@ -890,7 +899,7 @@ def drawAdsbSignage(device, width, height, aircraft):
 
     if len(loop_display_rows) > 0:
         rowThreeA = snapshot(
-            width - right_info_width,
+            width,
             loop_block_height,
             render_adsb_loop_block(draw_loop_aircraft),
             interval=loop_frame_interval,
@@ -1022,10 +1031,14 @@ def drawPlaneAlertSignage(
         (
             position,
             alert,
-            PLANE_ALERT_LAST_LINE_TEXT if alert is None else build_plane_alert_template_text(
-                next_left_template,
-                alert,
-                position,
+            (
+                config["transport"]["lastLineText"]
+                if alert is None
+                else build_plane_alert_template_text(
+                    next_left_template,
+                    alert,
+                    position,
+                )
             ),
             "" if alert is None else build_plane_alert_template_text(
                 next_right_template,
@@ -1053,12 +1066,19 @@ def drawPlaneAlertSignage(
         draw: ImageDraw.ImageDraw,
         y_offset: int,
         _position: int | None,
-        _alert: Any | None,
+        alert: Any | None,
         left_text: str,
         _right_text: str,
-        *_: Any,
+        width: int,
     ) -> None:
-        _, _, bitmap = cachedBitmapText(left_text, font)
+        text_width, _, bitmap = cachedBitmapText(left_text, font)
+        if alert is None:
+            draw.bitmap(
+                (max(0, (width - text_width) / 2), y_offset),
+                bitmap,
+                fill="yellow",
+            )
+            return
         draw.bitmap((0, y_offset), bitmap, fill="yellow")
 
     def draw_loop_info(
@@ -1088,7 +1108,7 @@ def drawPlaneAlertSignage(
 
     if len(loop_display_rows) > 0:
         rowThreeA = snapshot(
-            width - right_info_width,
+            width,
             loop_block_height,
             render_plane_alert_loop_block(draw_loop_alert),
             interval=loop_frame_interval,
@@ -1413,7 +1433,10 @@ try:
                 if modeState.active_mode == "adsb":
                     refreshInterval = config["adsb"]["refreshTime"]
                 elif modeState.active_mode == "plane-alert":
-                    refreshInterval = config["transport"]["modeSwitchInterval"]
+                    refreshInterval = max(
+                        1,
+                        int(float(config["loopDepartureInterval"]) * 1.5),
+                    )
 
                 now_monotonic = time.monotonic()
                 for cache_mode in {
