@@ -61,6 +61,11 @@ JSON_WRAPPER_KEYS = (
     "plane_alert",
     "plane-alert",
     "aaData",
+    "rows",
+    "results",
+    "aircraft",
+    "planes",
+    "hits",
 )
 
 
@@ -498,13 +503,52 @@ def _extract_records(payload: Any) -> list[Any]:
 
     for key in JSON_WRAPPER_KEYS:
         value = payload.get(key)
-        if isinstance(value, list):
-            return value
+        records = _extract_wrapped_records(value)
+        if records is not None:
+            return records
+
+    records = [
+        value
+        for value in payload.values()
+        if (
+            isinstance(value, Mapping)
+            and _coerce_plane_alert_item(value) is not None
+        )
+    ]
+    if records:
+        return records
 
     if all(isinstance(value, Mapping) for value in payload.values()):
         return list(payload.values())
 
     raise PlaneAlertDataError("Plane-Alert response must contain a records list")
+
+
+def _extract_wrapped_records(value: Any) -> list[Any] | None:
+    if isinstance(value, list):
+        return value
+    if not isinstance(value, Mapping):
+        return None
+    if not value:
+        return []
+
+    records = [
+        item
+        for item in value.values()
+        if (
+            isinstance(item, Mapping)
+            and _coerce_plane_alert_item(item) is not None
+        )
+    ]
+    if records:
+        return records
+
+    for key in JSON_WRAPPER_KEYS:
+        nested = _extract_wrapped_records(value.get(key))
+        if nested is not None:
+            return nested
+
+    return None
 
 
 def _coerce_plane_alert_item(item: Any) -> PlaneAlert | None:

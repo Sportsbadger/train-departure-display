@@ -157,6 +157,57 @@ def test_parse_plane_alerts_accepts_mapping_of_records_and_limit():
     assert result[0].hex == "AE0002"
 
 
+
+def test_parse_plane_alerts_accepts_metadata_wrapped_keyed_records():
+    payload = {
+        "draw": 1,
+        "recordsTotal": 2,
+        "data": {
+            "AE0001": {
+                "hex": "AE0001",
+                "timestamp": "2026/06/06 10:00:00",
+            },
+            "AE0002": {
+                "hex": "AE0002",
+                "timestamp": "2026/06/06 11:00:00",
+            },
+        },
+    }
+
+    result = parse_plane_alerts(payload, max_age_hours=None, limit=5)
+
+    assert [alert.hex for alert in result] == ["AE0002", "AE0001"]
+
+
+def test_parse_plane_alerts_accepts_nested_result_records():
+    payload = {
+        "status": "ok",
+        "results": {
+            "records": [
+                {
+                    "icao": "AE1234",
+                    "callsign": "@SAM123",
+                    "time:time_at_mindist": "2026/06/06 11:30:00",
+                }
+            ]
+        },
+    }
+
+    result = parse_plane_alerts(payload, max_age_hours=None, limit=5)
+
+    assert len(result) == 1
+    assert result[0].hex == "AE1234"
+    assert result[0].display_name == "SAM123"
+
+
+def test_parse_plane_alerts_accepts_empty_wrapped_record_mapping():
+    assert parse_plane_alerts(
+        {"data": {}},
+        max_age_hours=None,
+        limit=5,
+    ) == []
+
+
 def test_parse_plane_alerts_rejects_unsupported_payload_shape():
     with pytest.raises(PlaneAlertDataError, match="records list"):
         parse_plane_alerts({"count": 1}, max_age_hours=None, limit=5)
