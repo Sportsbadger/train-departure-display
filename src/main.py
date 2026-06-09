@@ -381,8 +381,8 @@ def loadPlaneAlertData(planeAlertConfig: dict[str, Any]):
         print(err)
         return False
     except PlaneAlertDataError as err:
-        print(f"Warning: Failed to parse Plane-Alert data: {err}")
-        return []
+        print(f"Error: Failed to parse Plane-Alert data: {err}")
+        return False
 
 
 def loadAdsbData(adsbConfig):
@@ -1400,7 +1400,6 @@ try:
     timeNow = time.time()
     timeFPS = time.time()
     activeAlertKey = ""
-    renderedModeItemCount = 0
 
     blankHours = []
     if config['hoursPattern'].match(config['screenBlankHours']):
@@ -1427,7 +1426,6 @@ try:
                 )
                 if modeState.active_mode != previousMode:
                     displayItemFinished = False
-                    renderedModeItemCount = 0
                     timeAtStart = 0
 
                 if displayItemFinished:
@@ -1450,7 +1448,6 @@ try:
                         switchInterval,
                     )
                     displayItemFinished = False
-                    renderedModeItemCount = 0
                     timeAtStart = 0
                     if modeState.active_mode != previousMode:
                         continue
@@ -1501,7 +1498,6 @@ try:
 
                 if activeAlertKey:
                     activeAlertKey = ""
-                    renderedModeItemCount = 0
                     timeAtStart = 0
 
                 cached_mode_value = None
@@ -1516,8 +1512,8 @@ try:
                 refresh_due = timeNow - timeAtStart >= refreshInterval
                 rebuild_display = should_rebuild_mode_viewport(
                     modeState.active_mode,
-                    timeAtStart > 0 and renderedModeItemCount > 0,
-                    mode_item_count > 0,
+                    timeAtStart > 0,
+                    cached_mode_value not in (None, False),
                     refresh_due,
                 )
 
@@ -1690,7 +1686,6 @@ try:
                         if config['dualScreen']:
                             virtual1 = virtual1_candidate
 
-                    renderedModeItemCount = mode_item_count
                     timeAtStart = time.time()
 
                 timeNow = time.time()

@@ -170,17 +170,3 @@ def test_should_rebuild_mode_viewport_retries_loading_and_non_animated_modes():
         refresh_due=False,
     ) is False
 
-
-def test_should_rebuild_mode_viewport_rebuilds_when_loading_receives_items():
-    assert should_rebuild_mode_viewport(
-        "adsb",
-        has_rendered_viewport=False,
-        has_display_items=True,
-        refresh_due=False,
-    ) is True
-    assert should_rebuild_mode_viewport(
-        "plane-alert",
-        has_rendered_viewport=False,
-        has_display_items=True,
-        refresh_due=False,
-    ) is True

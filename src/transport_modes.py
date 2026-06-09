@@ -190,12 +190,10 @@ def should_rebuild_mode_viewport(
         their existing viewport while loaded data is available so scroll
         completion callbacks can fire.
     """
-    if active_mode not in ("adsb", "plane-alert"):
-        return refresh_due
-    if not has_rendered_viewport and has_display_items:
-        return True
     if not refresh_due:
         return False
+    if active_mode not in ("adsb", "plane-alert"):
+        return True
     if not has_rendered_viewport:
         return True
     return not has_display_items
