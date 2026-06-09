@@ -283,6 +283,14 @@ def loadConfig():
     data["transport"]["lastLineText"] = (
         os.getenv("lastLineText") or DEFAULT_LAST_LINE_TEXT
     )
+    data["transport"]["modeCycleCount"] = _env_int(
+        "modeCycleCount",
+        1,
+        minimum=1,
+    )
+    data["transport"]["modeSwitchIntervalSet"] = os.getenv(
+        "modeSwitchInterval"
+    ) not in (None, "")
     data["transport"]["modeSwitchInterval"] = _env_int(
         "modeSwitchInterval",
         300,

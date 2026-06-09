@@ -410,6 +410,57 @@ def loadAdsbData(adsbConfig):
         print(f"Error: Failed to parse ADS-B data: {err}")
         return False
 
+
+def estimate_scrolling_row_duration_s(
+    text: str,
+    display_font: Any,
+    frame_interval_s: float,
+    initial_pause_frames: int,
+    repeat_count: int = 1,
+) -> float:
+    """Estimate seconds required for a scrolling row to complete repeats."""
+    txt_width, txt_height, _bitmap = cachedBitmapText(text, display_font)
+    frames_per_repeat = txt_height + initial_pause_frames + txt_width + 12
+    return max(1.0, frames_per_repeat * frame_interval_s * repeat_count)
+
+
+def active_mode_item_count(mode: str, data: Any) -> int:
+    """Return the number of cycle items available for train or ADS-B modes."""
+    if data is None or data is False:
+        return 1
+    if mode == "train":
+        if data[0] is False:
+            return 1
+        return max(1, len(data[0]))
+    if mode == "adsb":
+        return max(1, len(data))
+    return 1
+
+
+def current_adsb_item_interval_s(aircraft: Any) -> float:
+    """Return the ADS-B item duration needed to scroll detail text twice."""
+    loop_frame_interval = 0.02
+    default_interval_s = float(config["loopDepartureInterval"]) * 1.5
+    if aircraft is None or aircraft is False or len(aircraft) == 0:
+        return max(1.0, default_interval_s)
+
+    estimated_intervals = []
+    for plane in aircraft:
+        scroll_text = build_aircraft_template_text(
+            config["adsb"]["scrollTemplate"],
+            plane,
+        )
+        estimated_intervals.append(
+            estimate_scrolling_row_duration_s(
+                scroll_text,
+                font,
+                loop_frame_interval,
+                initial_pause_frames=50,
+                repeat_count=2,
+            )
+        )
+    return max(default_interval_s, *estimated_intervals)
+
 def drawStartup(device, width, height):
     virtualViewport = viewport(device, width=width, height=height)
 
@@ -760,7 +811,7 @@ def renderTrackingLabel(draw, *_):
     draw.bitmap((0, 0), bitmap, fill="yellow")
 
 
-def drawAdsbSignage(device, width, height, aircraft):
+def drawAdsbSignage(device, width, height, aircraft, mode_elapsed_s: float = 0.0):
     global stationRenderCount, pauseCount
     global adsbLoopPixelsUp, adsbLoopPauseCount, adsbLoopHasElevated
 
@@ -787,8 +838,8 @@ def drawAdsbSignage(device, width, height, aircraft):
 
     featured_index = select_featured_aircraft_index(
         aircraft,
-        time.monotonic(),
-        float(config["loopDepartureInterval"]) * 1.5,
+        mode_elapsed_s,
+        current_adsb_item_interval_s(aircraft),
     )
     featured_aircraft = aircraft[featured_index]
     top_left_text = build_aircraft_template_text(
@@ -1354,26 +1405,54 @@ try:
                 if timeNow - timeFPS >= config['fpsTime']:
                     timeFPS = time.time()
                     print('Effective FPS: ' + str(round(regulator.effective_FPS(), 2)))
+                now_monotonic = time.monotonic()
+                mode_data = None
+                if modeState.active_mode in displayCaches:
+                    mode_data = displayCaches[modeState.active_mode].snapshot(
+                        now_monotonic
+                    ).value
+
+                itemInterval = float(config["loopDepartureInterval"])
+                if modeState.active_mode == "adsb":
+                    itemInterval = current_adsb_item_interval_s(mode_data)
+                elif modeState.active_mode == "plane-alert":
+                    itemInterval = max(
+                        1.0,
+                        float(config["loopDepartureInterval"]) * 1.5,
+                    )
+
                 previousMode = modeState.active_mode
+                modeSwitchInterval = None
+                if (
+                    modeState.active_mode not in ("train", "adsb")
+                    or config["transport"]["modeSwitchIntervalSet"]
+                ):
+                    modeSwitchInterval = float(
+                        config["transport"]["modeSwitchInterval"]
+                    )
                 update_mode_state(
                     modeState,
                     transportModes,
-                    time.monotonic(),
-                    float(config["transport"]["modeSwitchInterval"]),
+                    now_monotonic,
+                    modeSwitchInterval,
+                    config["transport"]["modeCycleCount"],
+                    active_mode_item_count(modeState.active_mode, mode_data),
+                    itemInterval,
                 )
                 if modeState.active_mode != previousMode:
                     timeAtStart = 0
+                    mode_data = None
+                    itemInterval = float(config["loopDepartureInterval"])
 
                 refreshInterval = config["refreshTime"]
                 if modeState.active_mode == "adsb":
-                    refreshInterval = config["adsb"]["refreshTime"]
+                    refreshInterval = itemInterval
                 elif modeState.active_mode == "plane-alert":
                     refreshInterval = max(
                         1,
                         int(float(config["loopDepartureInterval"]) * 1.5),
                     )
 
-                now_monotonic = time.monotonic()
                 for cache_mode in {
                     modeState.active_mode,
                     next_transport_mode(transportModes, modeState.active_mode),
@@ -1441,6 +1520,7 @@ try:
                                 width=widgetWidth,
                                 height=widgetHeight,
                                 aircraft=aircraft,
+                                mode_elapsed_s=now_monotonic - modeState.last_switch,
                             )
                             if config['dualScreen']:
                                 virtual1 = drawAdsbSignage(
@@ -1448,6 +1528,7 @@ try:
                                     width=widgetWidth,
                                     height=widgetHeight,
                                     aircraft=aircraft,
+                                    mode_elapsed_s=now_monotonic - modeState.last_switch,
                                 )
                         elif config["transport"]["fallbackMode"] == "train":
                             data = displayCaches["train"].snapshot(now_monotonic).value

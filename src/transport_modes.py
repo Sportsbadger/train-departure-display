@@ -60,18 +60,64 @@ def build_mode_state(modes: Sequence[str], now: float) -> ModeState:
     return ModeState(active_mode=modes[0], last_switch=now)
 
 
+def mode_cycle_duration_s(
+    item_count: int,
+    mode_cycle_count: int,
+    item_interval_s: float,
+) -> float:
+    """Return the time a mode should run before cycle-based switching.
+
+    Args:
+        item_count: Number of display items in the active mode.
+        mode_cycle_count: Number of complete item-list cycles to show.
+        item_interval_s: Seconds each display item is expected to remain visible.
+
+    Returns:
+        Positive mode duration in seconds. Empty modes are treated as one
+        placeholder item so loading/unavailable screens still rotate.
+    """
+    safe_item_count = max(1, item_count)
+    safe_cycle_count = max(1, mode_cycle_count)
+    safe_item_interval_s = max(1.0, item_interval_s)
+    return safe_item_count * safe_cycle_count * safe_item_interval_s
+
+
 def update_mode_state(
     state: ModeState,
     modes: Sequence[str],
     now: float,
-    switch_interval_s: float,
+    switch_interval_s: float | None,
+    mode_cycle_count: int = 1,
+    active_mode_item_count: int = 1,
+    item_interval_s: float = 1.0,
 ) -> None:
-    """Switch to the next configured mode when the interval has elapsed."""
+    """Switch to the next configured mode when the active run completes.
+
+    Args:
+        state: Mutable mode state to update.
+        modes: Ordered transport modes.
+        now: Current monotonic timestamp.
+        switch_interval_s: Optional absolute override in seconds. When set,
+            this preserves legacy time-based mode switching.
+        mode_cycle_count: Number of complete item-list cycles per mode.
+        active_mode_item_count: Number of items in the active mode.
+        item_interval_s: Seconds allocated to each item for cycle switching.
+    """
     if len(modes) < 2:
         state.active_mode = modes[0] if modes else "train"
         state.last_switch = now
         return
-    if now - state.last_switch < switch_interval_s:
+
+    if switch_interval_s is None:
+        switch_after_s = mode_cycle_duration_s(
+            active_mode_item_count,
+            mode_cycle_count,
+            item_interval_s,
+        )
+    else:
+        switch_after_s = switch_interval_s
+
+    if now - state.last_switch < switch_after_s:
         return
 
     try:
