@@ -381,8 +381,8 @@ def loadPlaneAlertData(planeAlertConfig: dict[str, Any]):
         print(err)
         return False
     except PlaneAlertDataError as err:
-        print(f"Error: Failed to parse Plane-Alert data: {err}")
-        return False
+        print(f"Warning: Failed to parse Plane-Alert data: {err}")
+        return []
 
 
 def loadAdsbData(adsbConfig):

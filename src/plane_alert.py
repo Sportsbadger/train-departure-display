@@ -22,16 +22,40 @@ TIMESTAMP_FORMATS = (
 )
 
 CSV_FIELD_ALIASES: Mapping[str, tuple[str, ...]] = {
-    "hex": ("hex", "icao", "icao24", "icao_hex", "icao id", "hex id"),
+    "hex": (
+        "hex",
+        "icao",
+        "icao24",
+        "icao hex",
+        "icao_hex",
+        "icao id",
+        "icao_id",
+        "icao address",
+        "icao_address",
+        "aircraft hex",
+        "aircraft_hex",
+        "hex id",
+        "hex_id",
+    ),
     "tail": (
         "tail",
         "tail_number",
         "registration",
+        "registration_number",
         "reg",
+        "reg_number",
         "n-number",
     ),
-    "call": ("call", "callsign", "flight", "flight number"),
-    "name": ("name", "owner", "owner_name", "operator"),
+    "call": (
+        "call",
+        "callsign",
+        "call sign",
+        "call_sign",
+        "flight",
+        "flight number",
+        "flight_number",
+    ),
+    "name": ("name", "owner", "owner name", "owner_name", "operator"),
     "equipment": (
         "equipment",
         "type",
@@ -45,13 +69,29 @@ CSV_FIELD_ALIASES: Mapping[str, tuple[str, ...]] = {
         "first_seen",
         "last_seen",
         "time:time_at_mindist",
+        "time at mindist",
         "time_at_mindist",
         "time",
         "date/time",
         "datetime",
+        "date time",
+        "seen",
+        "last seen",
+        "last_seen",
+        "first seen",
+        "first_seen",
+        "created at",
+        "created_at",
     ),
-    "lat": ("lat", "latitude"),
-    "lon": ("lon", "longitude", "lng"),
+    "lat": ("lat", "latitude", "lat_at_mindist", "latitude_at_mindist"),
+    "lon": (
+        "lon",
+        "longitude",
+        "lng",
+        "long",
+        "lon_at_mindist",
+        "longitude_at_mindist",
+    ),
 }
 
 JSON_WRAPPER_KEYS = (
@@ -218,13 +258,17 @@ def parse_plane_alerts(
     Returns:
         Latest matching Plane-Alert records.
 
-    Raises:
-        PlaneAlertDataError: If the payload shape is unsupported.
+    Unsupported valid JSON shapes are treated as no current Plane-Alert
+    records so the display can stay in Plane-Alert mode and show ``No alerts``
+    instead of falling back to trains.
     """
     if limit <= 0:
         return []
 
     records = _extract_records(payload)
+    if not records:
+        return []
+
     alerts = [
         parsed
         for item in records
@@ -499,7 +543,9 @@ def _extract_records(payload: Any) -> list[Any]:
     if isinstance(payload, list):
         return payload
     if not isinstance(payload, Mapping):
-        raise PlaneAlertDataError("Plane-Alert response must be a JSON list or object")
+        return []
+    if not payload:
+        return []
 
     for key in JSON_WRAPPER_KEYS:
         value = payload.get(key)
@@ -521,7 +567,7 @@ def _extract_records(payload: Any) -> list[Any]:
     if all(isinstance(value, Mapping) for value in payload.values()):
         return list(payload.values())
 
-    raise PlaneAlertDataError("Plane-Alert response must contain a records list")
+    return []
 
 
 def _extract_wrapped_records(value: Any) -> list[Any] | None:
@@ -589,20 +635,40 @@ def _parse_plane_alert_sequence(item: Sequence[Any]) -> PlaneAlert | None:
     if len(values) < 3:
         return None
 
-    # DataTables/legacy exports have used positional rows. The documented
-    # columns are hex, tail, name, equipment, timestamp, call, lat, lon.
-    padded = values + [""] * 8
-    record = {
-        "hex": padded[0],
-        "tail": padded[1],
-        "name": padded[2],
-        "equipment": padded[3],
-        "timestamp": padded[4],
-        "call": padded[5],
-        "lat": padded[6],
-        "lon": padded[7],
-    }
-    return _parse_plane_alert_mapping(record)
+    # DataTables/legacy exports have used positional rows. Known layouts
+    # include both direct records and rows prefixed with an index column.
+    padded = values + [""] * 9
+    candidates = [
+        {
+            "hex": padded[0],
+            "tail": padded[1],
+            "name": padded[2],
+            "equipment": padded[3],
+            "timestamp": padded[4],
+            "call": padded[5],
+            "lat": padded[6],
+            "lon": padded[7],
+        },
+        {
+            "hex": padded[1],
+            "tail": padded[2],
+            "name": padded[3],
+            "equipment": padded[4],
+            "timestamp": padded[5],
+            "call": padded[6],
+            "lat": padded[7],
+            "lon": padded[8],
+        },
+    ]
+    parsed_candidates = [
+        parsed
+        for record in candidates
+        for parsed in [_parse_plane_alert_mapping(record)]
+        if parsed is not None
+    ]
+    if not parsed_candidates:
+        return None
+    return max(parsed_candidates, key=_field_score)
 
 
 def _dedupe_alerts(alerts: Iterable[PlaneAlert]) -> list[PlaneAlert]:

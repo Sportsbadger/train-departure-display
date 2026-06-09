@@ -157,7 +157,6 @@ def test_parse_plane_alerts_accepts_mapping_of_records_and_limit():
     assert result[0].hex == "AE0002"
 
 
-
 def test_parse_plane_alerts_accepts_metadata_wrapped_keyed_records():
     payload = {
         "draw": 1,
@@ -208,9 +207,55 @@ def test_parse_plane_alerts_accepts_empty_wrapped_record_mapping():
     ) == []
 
 
-def test_parse_plane_alerts_rejects_unsupported_payload_shape():
-    with pytest.raises(PlaneAlertDataError, match="records list"):
-        parse_plane_alerts({"count": 1}, max_age_hours=None, limit=5)
+def test_parse_plane_alerts_treats_unsupported_json_shape_as_empty():
+    assert parse_plane_alerts({"count": 1}, max_age_hours=None, limit=5) == []
+    assert parse_plane_alerts("ok", max_age_hours=None, limit=5) == []
+
+
+def test_parse_plane_alerts_accepts_expanded_aliases():
+    payload = [
+        {
+            "icao_address": "AE1234",
+            "registration_number": "N123AB",
+            "call_sign": "@SAM123",
+            "owner name": "USAF",
+            "aircraft type": "Boeing C-32A",
+            "last_seen": "2026-06-06 11:30:00",
+            "latitude_at_mindist": "51.500",
+            "longitude_at_mindist": "-0.100",
+        }
+    ]
+
+    result = parse_plane_alerts(payload, max_age_hours=None, limit=5)
+
+    assert len(result) == 1
+    assert result[0].hex == "AE1234"
+    assert result[0].tail == "N123AB"
+    assert result[0].display_name == "SAM123"
+    assert result[0].name == "USAF"
+    assert result[0].lat == 51.5
+    assert result[0].lon == -0.1
+
+
+def test_parse_plane_alerts_accepts_index_prefixed_sequence_records():
+    payload = [[
+        "101",
+        "AE1234",
+        "N123AB",
+        "USAF",
+        "Boeing C-32A",
+        "2026/06/06 11:30:00",
+        "@SAM123",
+        "51.500",
+        "-0.100",
+    ]]
+
+    result = parse_plane_alerts(payload, max_age_hours=None, limit=5)
+
+    assert len(result) == 1
+    assert result[0].hex == "AE1234"
+    assert result[0].display_name == "SAM123"
+    assert result[0].timestamp == datetime(2026, 6, 6, 11, 30, 0)
 
 
 def test_format_plane_alert_timestamp_handles_unknown():
