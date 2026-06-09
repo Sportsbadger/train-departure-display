@@ -167,3 +167,34 @@ def current_item_index(state: ModeState, item_count: int) -> int:
     if item_count <= 0:
         return 0
     return state.item_index % item_count
+
+
+def should_rebuild_mode_viewport(
+    active_mode: str,
+    has_rendered_viewport: bool,
+    has_display_items: bool,
+    refresh_due: bool,
+) -> bool:
+    """Return whether the current mode viewport should be rebuilt.
+
+    Args:
+        active_mode: Current transport mode name.
+        has_rendered_viewport: Whether this mode has already rendered a
+            viewport since it became active or since its item changed.
+        has_display_items: Whether the current mode has one or more displayable
+            items.
+        refresh_due: Whether the normal refresh interval has elapsed.
+
+    Returns:
+        True when the viewport should be rebuilt. Animated aircraft modes keep
+        their existing viewport while loaded data is available so scroll
+        completion callbacks can fire.
+    """
+    if not refresh_due:
+        return False
+    if active_mode not in ("adsb", "plane-alert"):
+        return True
+    if not has_rendered_viewport:
+        return True
+    return not has_display_items
+

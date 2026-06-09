@@ -9,6 +9,7 @@ from transport_modes import (  # noqa: E402
     build_mode_state,
     current_item_index,
     parse_modes,
+    should_rebuild_mode_viewport,
     update_mode_state,
 )
 
@@ -126,3 +127,45 @@ def test_current_item_index_clamps_to_available_items():
 
     assert current_item_index(state, item_count=5) == 2
     assert current_item_index(state, item_count=0) == 0
+
+
+def test_should_rebuild_mode_viewport_keeps_loaded_aircraft_animation_alive():
+    assert should_rebuild_mode_viewport(
+        "adsb",
+        has_rendered_viewport=True,
+        has_display_items=True,
+        refresh_due=True,
+    ) is False
+    assert should_rebuild_mode_viewport(
+        "plane-alert",
+        has_rendered_viewport=True,
+        has_display_items=True,
+        refresh_due=True,
+    ) is False
+
+
+def test_should_rebuild_mode_viewport_retries_loading_and_non_animated_modes():
+    assert should_rebuild_mode_viewport(
+        "adsb",
+        has_rendered_viewport=True,
+        has_display_items=False,
+        refresh_due=True,
+    ) is True
+    assert should_rebuild_mode_viewport(
+        "adsb",
+        has_rendered_viewport=False,
+        has_display_items=True,
+        refresh_due=True,
+    ) is True
+    assert should_rebuild_mode_viewport(
+        "train",
+        has_rendered_viewport=True,
+        has_display_items=True,
+        refresh_due=True,
+    ) is True
+    assert should_rebuild_mode_viewport(
+        "train",
+        has_rendered_viewport=True,
+        has_display_items=True,
+        refresh_due=False,
+    ) is False

@@ -46,6 +46,7 @@ from transport_modes import (
     build_mode_state,
     current_item_index,
     parse_modes,
+    should_rebuild_mode_viewport,
     update_mode_state,
 )
 from refresh_cache import AsyncRefreshCache
@@ -1499,16 +1500,36 @@ try:
                     activeAlertKey = ""
                     timeAtStart = 0
 
-                if timeNow - timeAtStart >= refreshInterval:
+                cached_mode_value = None
+                if modeState.active_mode in displayCaches:
+                    cached_mode_value = displayCaches[modeState.active_mode].snapshot(
+                        now_monotonic,
+                    ).value
+                mode_item_count = active_mode_item_count(
+                    modeState.active_mode,
+                    cached_mode_value,
+                )
+                refresh_due = timeNow - timeAtStart >= refreshInterval
+                rebuild_display = should_rebuild_mode_viewport(
+                    modeState.active_mode,
+                    timeAtStart > 0,
+                    mode_item_count > 0,
+                    refresh_due,
+                )
+
+                if rebuild_display:
                     if (
                         timeAtStart > 0
-                        and modeState.active_mode not in ("adsb", "plane-alert")
+                        and (
+                            modeState.active_mode not in ("adsb", "plane-alert")
+                            or mode_item_count <= 0
+                        )
                     ):
                         previousMode = modeState.active_mode
                         advance_mode_item(
                             modeState,
                             transportModes,
-                            1,
+                            mode_item_count,
                             int(config["transport"]["modeRunCount"]),
                             time.monotonic(),
                             switchInterval,
@@ -1524,7 +1545,7 @@ try:
                         if config['dualScreen']:
                             virtual1 = drawDebugScreen(device1, width=widgetWidth, height=widgetHeight, showTime=True, screen="2")
                     elif modeState.active_mode == "adsb":
-                        aircraft = displayCaches["adsb"].snapshot(now_monotonic).value
+                        aircraft = cached_mode_value
                         if aircraft is None:
                             virtual = drawBlankSignage(
                                 device,
@@ -1589,7 +1610,7 @@ try:
                                     departureStation="ADS-B unavailable",
                                 )
                     elif modeState.active_mode == "plane-alert":
-                        alerts = displayCaches["plane-alert"].snapshot(now_monotonic).value
+                        alerts = cached_mode_value
                         if alerts is None:
                             virtual = drawBlankSignage(
                                 device,
