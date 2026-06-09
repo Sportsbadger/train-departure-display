@@ -283,11 +283,19 @@ def loadConfig():
     data["transport"]["lastLineText"] = (
         os.getenv("lastLineText") or DEFAULT_LAST_LINE_TEXT
     )
-    data["transport"]["modeSwitchInterval"] = _env_int(
-        "modeSwitchInterval",
-        300,
+    data["transport"]["modeRunCount"] = _env_int(
+        "modeRunCount",
+        1,
         minimum=1,
     )
+    data["transport"]["modeSwitchInterval"] = _env_optional_int(
+        "modeSwitchInterval",
+    )
+    if (
+        data["transport"]["modeSwitchInterval"] is not None
+        and data["transport"]["modeSwitchInterval"] < 1
+    ):
+        data["transport"]["modeSwitchInterval"] = 1
     data["transport"]["fallbackMode"] = (
         os.getenv("transportFallbackMode") or "train"
     ).lower()

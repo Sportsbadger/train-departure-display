@@ -5,7 +5,9 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.append(str(PROJECT_ROOT / "src"))
 
 from transport_modes import (  # noqa: E402
+    advance_mode_item,
     build_mode_state,
+    current_item_index,
     parse_modes,
     update_mode_state,
 )
@@ -36,15 +38,91 @@ def test_parse_modes_accepts_alerts_as_interrupt_only_overlay():
     ) == ["train", "adsb", "plane-alert"]
 
 
-def test_update_mode_state_switches_after_interval():
+def test_update_mode_state_switches_after_interval_and_resets_item():
+    modes = ["train", "adsb"]
+    state = build_mode_state(modes, now=0.0)
+    state.item_index = 3
+    state.completed_runs = 2
+
+    assert (
+        update_mode_state(state, modes, now=299.0, switch_interval_s=300.0)
+        is False
+    )
+    assert state.active_mode == "train"
+
+    assert (
+        update_mode_state(state, modes, now=300.0, switch_interval_s=300.0)
+        is True
+    )
+    assert state.active_mode == "adsb"
+    assert state.item_index == 0
+    assert state.completed_runs == 0
+
+    assert (
+        update_mode_state(state, modes, now=600.0, switch_interval_s=300.0)
+        is True
+    )
+    assert state.active_mode == "train"
+
+
+def test_update_mode_state_does_not_switch_without_interval_override():
     modes = ["train", "adsb"]
     state = build_mode_state(modes, now=0.0)
 
-    update_mode_state(state, modes, now=299.0, switch_interval_s=300.0)
+    assert (
+        update_mode_state(state, modes, now=999.0, switch_interval_s=None)
+        is False
+    )
     assert state.active_mode == "train"
 
-    update_mode_state(state, modes, now=300.0, switch_interval_s=300.0)
+
+def test_advance_mode_item_switches_after_configured_full_runs():
+    modes = ["adsb", "train"]
+    state = build_mode_state(modes, now=0.0)
+
+    for expected_index in [1, 2, 0, 1, 2]:
+        assert advance_mode_item(
+            state,
+            modes,
+            item_count=3,
+            run_count=2,
+            now=10.0,
+        ) is False
+        assert state.active_mode == "adsb"
+        assert state.item_index == expected_index
+
+    assert advance_mode_item(
+        state,
+        modes,
+        item_count=3,
+        run_count=2,
+        now=12.0,
+    ) is True
+    assert state.active_mode == "train"
+    assert state.item_index == 0
+    assert state.completed_runs == 0
+
+
+def test_advance_mode_item_interval_override_disables_run_count_switching():
+    modes = ["adsb", "train"]
+    state = build_mode_state(modes, now=0.0)
+
+    assert advance_mode_item(
+        state,
+        modes,
+        item_count=1,
+        run_count=1,
+        now=10.0,
+        switch_interval_s=300.0,
+    ) is False
     assert state.active_mode == "adsb"
+    assert state.item_index == 0
+    assert state.completed_runs == 1
 
-    update_mode_state(state, modes, now=600.0, switch_interval_s=300.0)
-    assert state.active_mode == "train"
+
+def test_current_item_index_clamps_to_available_items():
+    state = build_mode_state(["adsb"], now=0.0)
+    state.item_index = 12
+
+    assert current_item_index(state, item_count=5) == 2
+    assert current_item_index(state, item_count=0) == 0
