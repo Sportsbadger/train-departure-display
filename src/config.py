@@ -78,9 +78,14 @@ def parsePlatformData(platform):
 
 
 def _default_transport_modes(
+    raw_modes: str | None,
     adsb_enabled: bool,
     plane_alert_enabled: bool,
 ) -> str:
+    configured_modes = (raw_modes or "").strip()
+    if configured_modes and configured_modes.lower() != "train":
+        return configured_modes
+
     modes = ["train"]
     if adsb_enabled:
         modes.append("adsb")
@@ -301,9 +306,8 @@ def loadConfig():
         os.getenv("alertsBottomTemplate") or DEFAULT_ALERT_BOTTOM_TEMPLATE
     )
 
-    data["transport"]["modes"] = os.getenv(
-        "transportModes",
-    ) or _default_transport_modes(
+    data["transport"]["modes"] = _default_transport_modes(
+        os.getenv("transportModes"),
         data["adsb"]["enabled"],
         data["planeAlert"]["enabled"],
     )

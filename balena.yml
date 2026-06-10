@@ -79,12 +79,12 @@ data:
     - adsbEnabled: False
     - planeAlertEnabled: False
     - alertsEnabled: False
-    - transportModes: train
+    - transportModes: train,plane-alert
     - modeSwitchInterval: 300
     - lastLineText: '****Last Line****'
-    - planeAlertSourceUrl: http://192.168.1.74:8088/plane-alert/pa_query.php?timestamp=.*&type=json
+    - planeAlertSourceUrl: http://192.168.1.74:8083/cgi/stream.sh?mode=plane-alert&date=all
     - planeAlertRefreshTime: 30
-    - planeAlertDisplayCount: 5
+    - planeAlertDisplayCount: 30
     - alertsMqttHost: 127.0.0.1
     - alertsMqttPort: 1883
     - alertsMqttTopic: plane-alert/alerts/#
