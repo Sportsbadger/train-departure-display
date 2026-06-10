@@ -6,82 +6,111 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.append(str(PROJECT_ROOT / "src"))
 
 from alerts import (  # noqa: E402
-    MqttAlertListener,
+    PlaneAlertListAlertListener,
     build_alert_template_text,
-    parse_plane_alert_mqtt_payload,
+    plane_alert_identity,
 )
+from plane_alert import PlaneAlert  # noqa: E402
 
 
-def test_parse_plane_alert_mqtt_payload_accepts_json_hit():
-    payload = (
-        b'{"hex":"AE1234","tail":"N123AB","call":"@SAM123",'
-        b'"name":"USAF","equipment":"Boeing C-32A",'
-        b'"timestamp":"2026/06/06 11:30:00"}'
+def make_alert(
+    hex_value: str,
+    index: int | None,
+    timestamp: datetime | None = None,
+) -> PlaneAlert:
+    return PlaneAlert(
+        hex=hex_value,
+        tail=f"N{hex_value[-3:]}",
+        call=f"TEST{hex_value[-2:]}",
+        name="Owner",
+        equipment="Type",
+        timestamp=timestamp or datetime(2026, 6, 6, 11, 30, 0),
+        lat=None,
+        lon=None,
+        index=index,
     )
 
-    alert = parse_plane_alert_mqtt_payload(
-        payload,
-        "plane-alert/alerts/hit",
-        received_at=datetime(2026, 6, 6, 11, 31, 0),
+
+def test_plane_alert_identity_prefers_live_stream_index() -> None:
+    alert = make_alert("AE1234", 329)
+
+    assert plane_alert_identity(alert) == "index:329"
+
+
+def test_plane_alert_list_listener_primes_without_alerting() -> None:
+    snapshots = [[make_alert("AE0001", 1)]]
+    listener = PlaneAlertListAlertListener(
+        {"displayDuration": 5.0, "pollInterval": 1.0},
+        {"sourceUrl": "http://example.test/cgi/stream.sh"},
+        load_alerts=lambda: snapshots[-1],
     )
 
-    assert alert.source == "plane-alert/alerts/hit"
-    assert alert.plane_alert.display_name == "SAM123"
-    assert alert.plane_alert.tail == "N123AB"
-    assert alert.plane_alert.timestamp == datetime(2026, 6, 6, 11, 30, 0)
-    assert build_alert_template_text(
-        "{title} {display_name} {tail_or_hex} {equipment}",
-        alert,
-    ) == "PLANE ALERT SAM123 N123AB Boeing C-32A"
+    listener.poll_once()
+
+    assert listener.current_alert(now=10.0) is None
 
 
-def test_parse_plane_alert_mqtt_payload_keeps_plain_text():
-    alert = parse_plane_alert_mqtt_payload(
-        b"Plane-Alert hit: AE1234",
-        "plane-alert/alerts/text",
-        received_at=datetime(2026, 6, 6, 11, 31, 0),
+def test_plane_alert_list_listener_alerts_when_new_row_is_added() -> None:
+    snapshots = [
+        [make_alert("AE0001", 1)],
+        [make_alert("AE0002", 2), make_alert("AE0001", 1)],
+    ]
+    calls = 0
+
+    def load_alerts() -> list[PlaneAlert]:
+        nonlocal calls
+        value = snapshots[calls]
+        calls += 1
+        return value
+
+    listener = PlaneAlertListAlertListener(
+        {"displayDuration": 5.0, "pollInterval": 1.0},
+        {"sourceUrl": "http://example.test/cgi/stream.sh"},
+        load_alerts=load_alerts,
     )
 
-    assert alert.raw_text == "Plane-Alert hit: AE1234"
-    assert alert.plane_alert.name == "Plane-Alert hit: AE1234"
-    assert build_alert_template_text("{raw}", alert) == "Plane-Alert hit: AE1234"
-
-
-def test_mqtt_alert_listener_promotes_latest_event_and_expires():
-    listener = MqttAlertListener(
-        {
-            "displayDuration": 5.0,
-            "mqttClientId": "test",
-            "mqttHost": "127.0.0.1",
-            "mqttPort": 1883,
-            "mqttKeepalive": 60,
-            "mqttTopic": "plane-alert/alerts/#",
-            "mqttQos": 0,
-        }
-    )
-
-    listener._on_message(  # noqa: SLF001
-        None,
-        None,
-        type(
-            "Message",
-            (),
-            {"payload": b'{"hex":"AE0001"}', "topic": "plane-alert/alerts/hit"},
-        )(),
-    )
-    listener._on_message(  # noqa: SLF001
-        None,
-        None,
-        type(
-            "Message",
-            (),
-            {"payload": b'{"hex":"AE0002"}', "topic": "plane-alert/alerts/hit"},
-        )(),
-    )
-
+    listener.poll_once()
+    listener.poll_once()
     active = listener.current_alert(now=10.0)
 
     assert active is not None
     assert active.plane_alert.hex == "AE0002"
+    assert build_alert_template_text(
+        "{title} {display_name} {tail_or_hex} {equipment}",
+        active,
+    ) == "PLANE ALERT TEST02 N002 Type"
     assert listener.current_alert(now=14.9) == active
     assert listener.current_alert(now=15.1) is None
+
+
+def test_plane_alert_list_listener_promotes_latest_added_row() -> None:
+    snapshots = [
+        [make_alert("AE0001", 1)],
+        [make_alert("AE0002", 2), make_alert("AE0001", 1)],
+        [
+            make_alert("AE0003", 3),
+            make_alert("AE0002", 2),
+            make_alert("AE0001", 1),
+        ],
+    ]
+    calls = 0
+
+    def load_alerts() -> list[PlaneAlert]:
+        nonlocal calls
+        value = snapshots[calls]
+        calls += 1
+        return value
+
+    listener = PlaneAlertListAlertListener(
+        {"displayDuration": 5.0, "pollInterval": 1.0},
+        {"sourceUrl": "http://example.test/cgi/stream.sh"},
+        load_alerts=load_alerts,
+    )
+
+    listener.poll_once()
+    listener.poll_once()
+    listener.poll_once()
+    active = listener.current_alert(now=10.0)
+
+    assert active is not None
+    assert active.plane_alert.hex == "AE0003"

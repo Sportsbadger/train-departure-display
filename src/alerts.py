@@ -1,20 +1,21 @@
 from __future__ import annotations
 
-import importlib
-import importlib.util
-import json
 import queue
-import ssl
+import threading
 import time
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Mapping
+from typing import Any
 
-from plane_alert import PlaneAlert, build_plane_alert_template_text
+import requests
 
-_paho_spec = importlib.util.find_spec("paho")
-_mqtt_spec = importlib.util.find_spec("paho.mqtt.client") if _paho_spec else None
-mqtt = importlib.import_module("paho.mqtt.client") if _mqtt_spec else None
+from plane_alert import (
+    PlaneAlert,
+    build_plane_alert_template_text,
+    fetch_plane_alert_json,
+    parse_plane_alerts,
+)
 
 
 @dataclass(frozen=True)
@@ -31,119 +32,131 @@ class DisplayAlert:
         """Return a stable key for display change detection."""
         timestamp = int(self.received_at.timestamp())
         return (
-            f"{self.source}:{self.plane_alert.hex}:"
-            f"{self.plane_alert.call}:{timestamp}"
+            f"{self.source}:{plane_alert_identity(self.plane_alert)}:"
+            f"{timestamp}"
         )
 
 
-def parse_plane_alert_mqtt_payload(
-    payload: bytes,
-    topic: str,
-    received_at: datetime | None = None,
-) -> DisplayAlert:
-    """Parse a Plane-Alert MQTT payload into a display alert.
+def plane_alert_identity(alert: PlaneAlert) -> str:
+    """Return a stable identity for detecting newly added Plane-Alert rows.
 
     Args:
-        payload: Raw MQTT message payload bytes.
-        topic: MQTT topic that delivered the message.
-        received_at: Optional receipt time for deterministic tests.
+        alert: Plane-Alert row from the live table.
 
     Returns:
-        Display-ready alert. JSON payloads are mapped to Plane-Alert fields;
-        non-JSON payloads are retained as raw text and shown as the alert name.
+        Stable row identity. The live stream's zero-based ``index`` is preferred
+        because it identifies newly appended table rows even when aircraft repeat.
     """
-    received = received_at or datetime.now(timezone.utc).replace(tzinfo=None)
-    text = payload.decode("utf-8", errors="replace").strip()
-    decoded = _decode_json_object(text)
-    if decoded is None:
-        plane_alert = PlaneAlert(
-            hex="",
-            tail="",
-            call="",
-            name=text or topic,
-            equipment="",
-            timestamp=received.replace(tzinfo=None),
-            lat=None,
-            lon=None,
-        )
-        return DisplayAlert(
-            source=topic,
-            received_at=received.replace(tzinfo=None),
-            plane_alert=plane_alert,
-            raw_text=text,
-        )
+    if alert.index is not None:
+        return f"index:{alert.index}"
 
-    plane_alert = _plane_alert_from_mapping(decoded, received)
-    return DisplayAlert(
-        source=topic,
-        received_at=received.replace(tzinfo=None),
-        plane_alert=plane_alert,
-        raw_text=text,
+    timestamp = alert.timestamp.isoformat() if alert.timestamp is not None else ""
+    identity_parts = (
+        alert.hex.upper(),
+        alert.call.upper(),
+        alert.tail.upper(),
+        timestamp,
     )
+    return "fields:" + "|".join(identity_parts)
 
 
 def build_alert_template_text(template: str, alert: DisplayAlert) -> str:
-    """Build full-screen alert text from a configured template."""
+    """Build full-screen alert text from a configured template.
+
+    Args:
+        template: Python ``str.format_map``-style template.
+        alert: Display alert used to populate template variables.
+
+    Returns:
+        Rendered alert text, or an empty string for invalid templates.
+    """
     try:
         return template.format_map(_AlertTemplateContext(alert)).strip()
     except (KeyError, TypeError, ValueError):
         return ""
 
 
-class MqttAlertListener:
-    """Non-blocking MQTT listener for Plane-Alert hit notifications."""
+class PlaneAlertListAlertListener:
+    """Poll Plane-Alert history and alert when a new row appears."""
 
-    def __init__(self, mqtt_config: Mapping[str, Any]) -> None:
-        """Create a listener using alert MQTT configuration.
+    def __init__(
+        self,
+        alert_config: Mapping[str, Any],
+        plane_alert_config: Mapping[str, Any],
+        load_alerts: Callable[[], Sequence[PlaneAlert]] | None = None,
+    ) -> None:
+        """Create a listener using Plane-Alert datasource configuration.
 
         Args:
-            mqtt_config: The ``config["alerts"]`` mapping.
+            alert_config: The ``config["alerts"]`` mapping.
+            plane_alert_config: The ``config["planeAlert"]`` mapping.
+            load_alerts: Optional loader for tests. When omitted, the listener
+                fetches and parses the configured Plane-Alert source URL.
         """
-        self._config = mqtt_config
+        self._alert_config = alert_config
+        self._plane_alert_config = plane_alert_config
+        self._load_alerts = load_alerts or self._load_plane_alert_rows
         self._events: queue.Queue[DisplayAlert] = queue.Queue(maxsize=10)
-        self._client: Any | None = None
+        self._seen_identities: set[str] = set()
+        self._primed = False
         self._active_alert: DisplayAlert | None = None
         self._active_until = 0.0
+        self._stop_event = threading.Event()
+        self._thread: threading.Thread | None = None
 
     def start(self) -> None:
-        """Connect and start the MQTT network loop in a background thread."""
-        if mqtt is None:
-            raise RuntimeError(
-                "paho-mqtt is required when alertsEnabled=True; "
-                "install requirements.txt before enabling alerts"
-            )
+        """Start polling Plane-Alert history in a background thread."""
+        if self._thread is not None and self._thread.is_alive():
+            return
 
-        client = mqtt.Client(
-            client_id=str(self._config["mqttClientId"]),
-            clean_session=True,
+        self._stop_event.clear()
+        self._thread = threading.Thread(
+            target=self._poll_loop,
+            name="plane-alert-list-alerts",
+            daemon=True,
         )
-        username = str(self._config.get("mqttUsername") or "")
-        password = str(self._config.get("mqttPassword") or "")
-        if username:
-            client.username_pw_set(username, password or None)
-        if bool(self._config.get("mqttTlsEnabled", False)):
-            client.tls_set(cert_reqs=ssl.CERT_REQUIRED)
-
-        client.on_connect = self._on_connect
-        client.on_message = self._on_message
-        client.connect_async(
-            str(self._config["mqttHost"]),
-            int(self._config["mqttPort"]),
-            keepalive=int(self._config["mqttKeepalive"]),
-        )
-        client.loop_start()
-        self._client = client
+        self._thread.start()
 
     def stop(self) -> None:
-        """Stop the MQTT background loop without blocking display shutdown."""
-        if self._client is None:
+        """Stop the polling thread without blocking display shutdown."""
+        self._stop_event.set()
+        if self._thread is None:
             return
-        self._client.loop_stop()
-        self._client.disconnect()
-        self._client = None
+        self._thread.join(timeout=2.0)
+        self._thread = None
+
+    def poll_once(self) -> None:
+        """Poll the Plane-Alert datasource once and queue any newly added row."""
+        rows = list(self._load_alerts())
+        identities = [plane_alert_identity(row) for row in rows]
+        current_identities = set(identities)
+
+        if not self._primed:
+            self._seen_identities = current_identities
+            self._primed = True
+            return
+
+        new_rows = [
+            row
+            for row, identity in zip(rows, identities, strict=True)
+            if identity not in self._seen_identities
+        ]
+        self._seen_identities.update(current_identities)
+        if not new_rows:
+            return
+
+        newest_new_row = new_rows[0]
+        _put_drop_oldest(
+            self._events,
+            DisplayAlert(
+                source=str(self._plane_alert_config["sourceUrl"]),
+                received_at=datetime.now(timezone.utc).replace(tzinfo=None),
+                plane_alert=newest_new_row,
+            ),
+        )
 
     def current_alert(self, now: float | None = None) -> DisplayAlert | None:
-        """Return the active alert, promoting queued hits as needed.
+        """Return the active alert, promoting queued new rows as needed.
 
         Args:
             now: Optional monotonic timestamp for tests.
@@ -160,33 +173,26 @@ class MqttAlertListener:
         self._active_alert = None
         return None
 
-    def _on_connect(
-        self,
-        client: Any,
-        _userdata: Any,
-        _flags: dict[str, Any],
-        return_code: int,
-    ) -> None:
-        if return_code != 0:
-            print(f"Warning: MQTT alert connection failed with code {return_code}")
-            return
-        client.subscribe(
-            str(self._config["mqttTopic"]),
-            qos=int(self._config["mqttQos"]),
-        )
+    def _poll_loop(self) -> None:
+        poll_interval = float(self._alert_config["pollInterval"])
+        while not self._stop_event.is_set():
+            try:
+                self.poll_once()
+            except (OSError, ValueError, requests.RequestException) as err:
+                print(f"Warning: Failed to poll Plane-Alert alerts: {err}")
+            self._stop_event.wait(poll_interval)
 
-    def _on_message(
-        self,
-        _client: Any,
-        _userdata: Any,
-        message: Any,
-    ) -> None:
-        try:
-            alert = parse_plane_alert_mqtt_payload(message.payload, message.topic)
-        except UnicodeDecodeError as err:
-            print(f"Warning: Failed to decode MQTT alert payload: {err}")
-            return
-        _put_drop_oldest(self._events, alert)
+    def _load_plane_alert_rows(self) -> list[PlaneAlert]:
+        payload = fetch_plane_alert_json(
+            str(self._plane_alert_config["sourceUrl"]),
+            float(self._plane_alert_config["fetchTimeout"]),
+            str(self._plane_alert_config["userAgent"]),
+        )
+        return parse_plane_alerts(
+            payload,
+            self._plane_alert_config["maxAgeHours"],
+            int(self._plane_alert_config["displayCount"]),
+        )
 
     def _promote_latest_event(self, now: float) -> None:
         latest: DisplayAlert | None = None
@@ -198,7 +204,7 @@ class MqttAlertListener:
         if latest is None:
             return
         self._active_alert = latest
-        self._active_until = now + float(self._config["displayDuration"])
+        self._active_until = now + float(self._alert_config["displayDuration"])
 
 
 class _AlertTemplateContext(dict[str, Any]):
@@ -236,80 +242,6 @@ def _alert_template_value(key: str, alert: DisplayAlert) -> Any:
             return build_plane_alert_template_text("{detail}", plane_alert)
         case _:
             return build_plane_alert_template_text("{" + key + "}", plane_alert)
-
-
-def _decode_json_object(text: str) -> Mapping[str, Any] | None:
-    if not text:
-        return None
-    try:
-        payload = json.loads(text)
-    except json.JSONDecodeError:
-        return None
-    if isinstance(payload, Mapping):
-        return payload
-    return None
-
-
-def _plane_alert_from_mapping(
-    payload: Mapping[str, Any],
-    received_at: datetime,
-) -> PlaneAlert:
-    timestamp = _first_clean_text(
-        payload,
-        "timestamp",
-        "first_seen",
-        "last_seen",
-        "date",
-        "time",
-    )
-    return PlaneAlert(
-        hex=_first_clean_text(payload, "hex", "icao", "icao_hex", "icao24"),
-        tail=_first_clean_text(payload, "tail", "tail_number", "registration", "reg"),
-        call=_first_clean_text(payload, "call", "callsign", "flight"),
-        name=_first_clean_text(payload, "name", "owner", "alert", "message"),
-        equipment=_first_clean_text(payload, "equipment", "type", "aircraft_type"),
-        timestamp=_parse_mqtt_timestamp(timestamp, received_at),
-        lat=_optional_float(payload.get("lat", payload.get("latitude"))),
-        lon=_optional_float(payload.get("lon", payload.get("longitude"))),
-    )
-
-
-def _parse_mqtt_timestamp(value: str, fallback: datetime) -> datetime:
-    if not value:
-        return fallback.replace(tzinfo=None)
-    if value.isdigit():
-        return datetime.fromtimestamp(int(value), tz=timezone.utc).replace(tzinfo=None)
-    for date_format in (
-        "%Y/%m/%d %H:%M:%S",
-        "%Y-%m-%d %H:%M:%S",
-        "%Y/%m/%d %H:%M",
-        "%Y-%m-%d %H:%M",
-    ):
-        try:
-            return datetime.strptime(value, date_format)
-        except ValueError:
-            continue
-    return fallback.replace(tzinfo=None)
-
-
-def _first_clean_text(item: Mapping[str, Any], *keys: str) -> str:
-    for key in keys:
-        value = item.get(key)
-        if value is None:
-            continue
-        text = str(value).strip()
-        if text:
-            return text
-    return ""
-
-
-def _optional_float(value: Any) -> float | None:
-    if value in (None, ""):
-        return None
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return None
 
 
 def _put_drop_oldest(

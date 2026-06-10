@@ -39,9 +39,7 @@ def test_adsb_config_defaults_to_disabled_train_only(monkeypatch):
         "planeAlertNextLeftTemplate",
         "planeAlertNextRightTemplate",
         "alertsEnabled",
-        "alertsMqttHost",
-        "alertsMqttPort",
-        "alertsMqttTopic",
+        "alertsPollInterval",
         "alertsDisplayDuration",
         "alertsTitleTemplate",
         "alertsTopTemplate",
@@ -83,9 +81,7 @@ def test_adsb_config_defaults_to_disabled_train_only(monkeypatch):
     assert config["planeAlert"]["nextLeftTemplate"] == "{loop_alert}"
     assert config["planeAlert"]["nextRightTemplate"] == "{loop_info}"
     assert config["alerts"]["enabled"] is False
-    assert config["alerts"]["mqttHost"] == "127.0.0.1"
-    assert config["alerts"]["mqttPort"] == 1883
-    assert config["alerts"]["mqttTopic"] == "plane-alert/alerts/#"
+    assert config["alerts"]["pollInterval"] == 5.0
     assert config["alerts"]["displayDuration"] == 20.0
     assert config["alerts"]["titleTemplate"] == "{title}"
     assert config["alerts"]["topTemplate"] == "{headline}"
@@ -126,10 +122,7 @@ def test_adsb_config_parses_enabled_values(monkeypatch):
     )
     monkeypatch.setenv("planeAlertNextRightTemplate", "{equipment} {time}")
     monkeypatch.setenv("alertsEnabled", "True")
-    monkeypatch.setenv("alertsMqttHost", "mqtt.example.test")
-    monkeypatch.setenv("alertsMqttPort", "0")
-    monkeypatch.setenv("alertsMqttTopic", "custom/alerts/#")
-    monkeypatch.setenv("alertsMqttQos", "9")
+    monkeypatch.setenv("alertsPollInterval", "0")
     monkeypatch.setenv("alertsDisplayDuration", "0")
     monkeypatch.setenv("alertsTitleTemplate", "ALERT")
     monkeypatch.setenv("alertsTopTemplate", "{display_name}")
@@ -170,10 +163,7 @@ def test_adsb_config_parses_enabled_values(monkeypatch):
     )
     assert config["planeAlert"]["nextRightTemplate"] == "{equipment} {time}"
     assert config["alerts"]["enabled"] is True
-    assert config["alerts"]["mqttHost"] == "mqtt.example.test"
-    assert config["alerts"]["mqttPort"] == 1
-    assert config["alerts"]["mqttTopic"] == "custom/alerts/#"
-    assert config["alerts"]["mqttQos"] == 2
+    assert config["alerts"]["pollInterval"] == 1.0
     assert config["alerts"]["displayDuration"] == 1.0
     assert config["alerts"]["titleTemplate"] == "ALERT"
     assert config["alerts"]["topTemplate"] == "{display_name}"

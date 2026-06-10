@@ -11,7 +11,7 @@ from PIL import ImageFont, Image, ImageDraw
 from trains import loadDeparturesForStation
 from alerts import (
     DisplayAlert,
-    MqttAlertListener,
+    PlaneAlertListAlertListener,
     build_alert_template_text,
 )
 from adsb import (
@@ -1497,7 +1497,10 @@ try:
 
     alertListener = None
     if config["alerts"]["enabled"]:
-        alertListener = MqttAlertListener(config["alerts"])
+        alertListener = PlaneAlertListAlertListener(
+            config["alerts"],
+            config["planeAlert"],
+        )
         alertListener.start()
 
     initial_refresh_modes = set(transportModes + [config["transport"]["fallbackMode"]])

@@ -119,43 +119,34 @@ planeAlertNextLeftTemplate={position_ordinal} {display_name} {tail}
 planeAlertNextRightTemplate={equipment} {time}
 ```
 
-## Plane-Alert MQTT alerts overlay (optional)
+## Plane-Alert new-row alerts overlay (optional)
 
-The `alerts` feature is separate from the Plane-Alert history board. It listens for Plane-Alert MQTT hit messages in a background MQTT network thread and interrupts whatever mode is currently visible with a full-screen alert. It does not poll Plane-Alert history, does not wait for MQTT during rendering, and does not consume a normal mode-rotation slot; include `alerts` in `transportModes` for readability alongside `train,adsb,plane-alert,alerts`.
+The `alerts` feature is separate from the Plane-Alert history board. It polls the same configured Plane-Alert datasource in a background thread, primes itself with the current table, and interrupts whatever mode is visible only when a new row is added after startup. It does not consume a normal mode-rotation slot; include `alerts` in `transportModes` for readability alongside `train,adsb,plane-alert,alerts`.
 
 | Key | Example Value
 |-----|----------
-| `alertsEnabled` | `True` (enables the interrupting MQTT alert overlay)
+| `alertsEnabled` | `True` (enables the interrupting Plane-Alert new-row overlay)
 | `transportModes` | `train,adsb,plane-alert,alerts` (`alerts` is accepted as an interrupt-only feature and is not rotated like train/ADS-B/Plane-Alert boards)
-| `alertsMqttHost` | `192.168.1.74` (MQTT broker hostname or IP address)
-| `alertsMqttPort` | `1883` (MQTT broker port)
-| `alertsMqttTopic` | `plane-alert/alerts/#` (Plane-Alert MQTT topic filter to subscribe to)
-| `alertsMqttUsername` | `planealert` (optional MQTT username)
-| `alertsMqttPassword` | `secret` (optional MQTT password)
-| `alertsMqttClientId` | `train-departure-display-alerts` (MQTT client ID)
-| `alertsMqttKeepalive` | `60` (MQTT keepalive seconds)
-| `alertsMqttQos` | `0` (subscription QoS, clamped to `0`-`2`)
-| `alertsMqttTlsEnabled` | `False` (enable broker TLS with default certificate validation)
-| `alertsDisplayDuration` | `20` (seconds each MQTT alert remains full-screen unless replaced by a newer hit)
+| `alertsPollInterval` | `5` (seconds between checks of `planeAlertSourceUrl`, clamped to at least `1`)
+| `alertsDisplayDuration` | `20` (seconds each new-row alert remains full-screen unless replaced by a newer row)
 | `alertsTitleTemplate` | `{title}` (top full-screen alert row)
 | `alertsTopTemplate` | `{headline}` (second alert row)
 | `alertsMiddleTemplate` | `{equipment}  {name}` (third alert row)
 | `alertsBottomTemplate` | `{detail}` (bottom scrolling alert row)
 
-MQTT payloads can be JSON objects containing Plane-Alert-style fields such as `hex`, `tail`, `call`, `name`, `equipment`, `timestamp`, `lat`, and `lon`. Plain-text payloads are also accepted and can be displayed with `{raw}`. Alert templates support all Plane-Alert variables listed above plus `{title}`, `{headline}`, `{source}`, `{raw}`, and `{received_time}`. If multiple MQTT hits arrive while an alert is on screen, the newest queued hit replaces the active alert and restarts `alertsDisplayDuration`.
+New-row detection prefers the live stream `index` field, then falls back to aircraft identity fields and timestamp for legacy JSON/CSV data. Alert templates support all Plane-Alert variables listed above plus `{title}`, `{headline}`, `{source}`, `{raw}`, and `{received_time}`. If multiple new rows arrive while an alert is on screen, the newest queued row replaces the active alert and restarts `alertsDisplayDuration`.
 
 Example alert overlay configuration:
 
 ```bash
 alertsEnabled=True
 transportModes=train,adsb,plane-alert,alerts
-alertsMqttHost=192.168.1.74
-alertsMqttTopic=plane-alert/alerts/#
+alertsPollInterval=5
 alertsDisplayDuration=25
 alertsTitleTemplate={title}
 alertsTopTemplate={display_name} {tail_or_hex} {time}
 alertsMiddleTemplate={equipment}  {name}
-alertsBottomTemplate={detail}  MQTT {source}
+alertsBottomTemplate={detail}  Source {source}
 ```
 
 If using two screens the following line needs to be added into /boot/config.txt which is achieved by using the 'Define DT overlays' option within the Device configuration screen on balenaCloud: `spi1-3cs`

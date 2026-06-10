@@ -311,25 +311,11 @@ def loadConfig():
     )
 
     data["alerts"]["enabled"] = _env_bool("alertsEnabled", False)
-    data["alerts"]["mqttHost"] = os.getenv("alertsMqttHost") or "127.0.0.1"
-    data["alerts"]["mqttPort"] = _env_int("alertsMqttPort", 1883, minimum=1)
-    data["alerts"]["mqttTopic"] = (
-        os.getenv("alertsMqttTopic") or "plane-alert/alerts/#"
+    data["alerts"]["pollInterval"] = _env_float(
+        "alertsPollInterval",
+        5.0,
+        minimum=1.0,
     )
-    data["alerts"]["mqttUsername"] = os.getenv("alertsMqttUsername") or ""
-    data["alerts"]["mqttPassword"] = os.getenv("alertsMqttPassword") or ""
-    data["alerts"]["mqttClientId"] = (
-        os.getenv("alertsMqttClientId") or "train-departure-display-alerts"
-    )
-    data["alerts"]["mqttKeepalive"] = _env_int(
-        "alertsMqttKeepalive",
-        60,
-        minimum=1,
-    )
-    data["alerts"]["mqttQos"] = _env_int("alertsMqttQos", 0, minimum=0)
-    if data["alerts"]["mqttQos"] > 2:
-        data["alerts"]["mqttQos"] = 2
-    data["alerts"]["mqttTlsEnabled"] = _env_bool("alertsMqttTlsEnabled", False)
     data["alerts"]["displayDuration"] = _env_float(
         "alertsDisplayDuration",
         20.0,
