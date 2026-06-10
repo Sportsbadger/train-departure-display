@@ -6,6 +6,7 @@ sys.path.append(str(PROJECT_ROOT / "src"))
 
 from transport_modes import (  # noqa: E402
     build_mode_state,
+    mode_run_duration_s,
     parse_modes,
     update_mode_state,
 )
@@ -48,3 +49,46 @@ def test_update_mode_state_switches_after_interval():
 
     update_mode_state(state, modes, now=600.0, switch_interval_s=300.0)
     assert state.active_mode == "train"
+
+
+def test_mode_run_duration_doubles_train_runs():
+    assert mode_run_duration_s(
+        "train",
+        entry_count=3,
+        entry_interval_s=10.0,
+        mode_run_count=1,
+    ) == 60.0
+    assert mode_run_duration_s(
+        "adsb",
+        entry_count=3,
+        entry_interval_s=20.0,
+        mode_run_count=1,
+    ) == 60.0
+
+
+def test_update_mode_state_mode_run_count_overrides_interval():
+    modes = ["train", "adsb"]
+    state = build_mode_state(modes, now=0.0)
+
+    update_mode_state(
+        state,
+        modes,
+        now=59.0,
+        switch_interval_s=10.0,
+        mode_run_count=1,
+        entry_count=3,
+        entry_interval_s=10.0,
+    )
+    assert state.active_mode == "train"
+
+    update_mode_state(
+        state,
+        modes,
+        now=60.0,
+        switch_interval_s=10.0,
+        mode_run_count=1,
+        entry_count=3,
+        entry_interval_s=10.0,
+    )
+    assert state.active_mode == "adsb"
+    assert state.last_switch == 60.0

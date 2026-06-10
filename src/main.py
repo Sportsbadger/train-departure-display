@@ -157,6 +157,43 @@ loopHasElevated = 0
 adsbLoopPixelsUp = 0
 adsbLoopPauseCount = 0
 adsbLoopHasElevated = 0
+CACHE_REFRESH_CHECK_INTERVAL_S = 1.0
+PLANE_ENTRY_SCROLL_MULTIPLIER = 2.0
+
+
+def mode_entry_interval_s(mode: str, app_config: dict[str, Any]) -> float:
+    """Return seconds to keep a mode entry active before advancing."""
+    if mode in {"adsb", "plane-alert"}:
+        return max(
+            1.0,
+            float(app_config["loopDepartureInterval"])
+            * PLANE_ENTRY_SCROLL_MULTIPLIER,
+        )
+    return max(1.0, float(app_config["loopDepartureInterval"]))
+
+
+def mode_entry_count(
+    mode: str,
+    value: Any,
+    app_config: dict[str, Any],
+) -> int:
+    """Return the number of entries/pages needed for one full mode cycle."""
+    if mode == "adsb" and isinstance(value, list):
+        return max(1, min(len(value), int(app_config["adsb"]["displayCount"])))
+    if mode == "plane-alert" and isinstance(value, list):
+        return max(1, min(len(value), int(app_config["planeAlert"]["displayCount"])))
+    if mode != "train" or not isinstance(value, tuple) or len(value) < 1:
+        return 1
+
+    departures = value[0]
+    if not isinstance(departures, list):
+        return 1
+    loop_departure_count = int(app_config["loopDepartureCount"])
+    visible_loop_departures = min(
+        max(len(departures) - 1, 0),
+        loop_departure_count,
+    )
+    return max(1, (visible_loop_departures + 1) // 2)
 
 
 def renderStations(stations, initial_pause_frames=20):
@@ -760,7 +797,13 @@ def renderTrackingLabel(draw, *_):
     draw.bitmap((0, 0), bitmap, fill="yellow")
 
 
-def drawAdsbSignage(device, width, height, aircraft):
+def drawAdsbSignage(
+    device: Any,
+    width: int,
+    height: int,
+    aircraft: list[Any],
+    mode_elapsed_s: float | None = None,
+) -> Any:
     global stationRenderCount, pauseCount
     global adsbLoopPixelsUp, adsbLoopPauseCount, adsbLoopHasElevated
 
@@ -786,9 +829,9 @@ def drawAdsbSignage(device, width, height, aircraft):
     loop_frame_interval = 0.02
 
     featured_index = select_featured_aircraft_index(
-        aircraft,
-        time.monotonic(),
-        float(config["loopDepartureInterval"]) * 1.5,
+        aircraft[: config["adsb"]["displayCount"]],
+        mode_elapsed_s if mode_elapsed_s is not None else time.monotonic(),
+        mode_entry_interval_s("adsb", config),
     )
     featured_aircraft = aircraft[featured_index]
     top_left_text = build_aircraft_template_text(
@@ -935,6 +978,7 @@ def drawPlaneAlertSignage(
     width: int,
     height: int,
     alerts: list[Any],
+    mode_elapsed_s: float | None = None,
 ) -> Any:
     global stationRenderCount, pauseCount
 
@@ -962,8 +1006,8 @@ def drawPlaneAlertSignage(
 
     featured_index = select_featured_plane_alert_index(
         display_alerts,
-        time.monotonic(),
-        float(config["loopDepartureInterval"]) * 1.5,
+        mode_elapsed_s if mode_elapsed_s is not None else time.monotonic(),
+        mode_entry_interval_s("plane-alert", config),
     )
     featured_alert = display_alerts[featured_index]
     top_left_text = build_plane_alert_template_text(
@@ -1338,6 +1382,7 @@ try:
     timeNow = time.time()
     timeFPS = time.time()
     activeAlertKey = ""
+    lastCacheRefreshCheck = 0.0
 
     blankHours = []
     if config['hoursPattern'].match(config['screenBlankHours']):
@@ -1355,32 +1400,57 @@ try:
                     timeFPS = time.time()
                     print('Effective FPS: ' + str(round(regulator.effective_FPS(), 2)))
                 previousMode = modeState.active_mode
+                now_monotonic = time.monotonic()
+                active_snapshot = None
+                if modeState.active_mode in displayCaches:
+                    active_snapshot = displayCaches[modeState.active_mode].snapshot(
+                        now_monotonic,
+                    ).value
                 update_mode_state(
                     modeState,
                     transportModes,
-                    time.monotonic(),
+                    now_monotonic,
                     float(config["transport"]["modeSwitchInterval"]),
+                    mode_run_count=config["transport"].get("modeRunCount"),
+                    entry_count=mode_entry_count(
+                        modeState.active_mode,
+                        active_snapshot,
+                        config,
+                    ),
+                    entry_interval_s=mode_entry_interval_s(
+                        modeState.active_mode,
+                        config,
+                    ),
                 )
                 if modeState.active_mode != previousMode:
                     timeAtStart = 0
+                    if modeState.active_mode in displayCaches:
+                        displayCaches[modeState.active_mode].refresh_if_due(
+                            now_monotonic,
+                            force=True,
+                        )
 
                 refreshInterval = config["refreshTime"]
-                if modeState.active_mode == "adsb":
-                    refreshInterval = config["adsb"]["refreshTime"]
-                elif modeState.active_mode == "plane-alert":
-                    refreshInterval = max(
-                        1,
-                        int(float(config["loopDepartureInterval"]) * 1.5),
+                if modeState.active_mode in {"adsb", "plane-alert"}:
+                    refreshInterval = mode_entry_interval_s(
+                        modeState.active_mode,
+                        config,
                     )
 
-                now_monotonic = time.monotonic()
-                for cache_mode in {
-                    modeState.active_mode,
-                    next_transport_mode(transportModes, modeState.active_mode),
-                    config["transport"]["fallbackMode"],
-                }:
-                    if cache_mode in displayCaches:
-                        displayCaches[cache_mode].refresh_if_due(now_monotonic)
+                if (
+                    now_monotonic - lastCacheRefreshCheck
+                    >= CACHE_REFRESH_CHECK_INTERVAL_S
+                ):
+                    lastCacheRefreshCheck = now_monotonic
+                    refresh_modes = {modeState.active_mode}
+                    if (
+                        modeState.active_mode != config["transport"]["fallbackMode"]
+                        and modeState.active_mode != "train"
+                    ):
+                        refresh_modes.add(config["transport"]["fallbackMode"])
+                    for cache_mode in refresh_modes:
+                        if cache_mode in displayCaches:
+                            displayCaches[cache_mode].refresh_if_due(now_monotonic)
 
                 activeAlert = None
                 if alertListener is not None:
@@ -1441,6 +1511,9 @@ try:
                                 width=widgetWidth,
                                 height=widgetHeight,
                                 aircraft=aircraft,
+                                mode_elapsed_s=(
+                                    now_monotonic - modeState.last_switch
+                                ),
                             )
                             if config['dualScreen']:
                                 virtual1 = drawAdsbSignage(
@@ -1448,6 +1521,9 @@ try:
                                     width=widgetWidth,
                                     height=widgetHeight,
                                     aircraft=aircraft,
+                                    mode_elapsed_s=(
+                                        now_monotonic - modeState.last_switch
+                                    ),
                                 )
                         elif config["transport"]["fallbackMode"] == "train":
                             data = displayCaches["train"].snapshot(now_monotonic).value
@@ -1496,6 +1572,9 @@ try:
                                 width=widgetWidth,
                                 height=widgetHeight,
                                 alerts=alerts,
+                                mode_elapsed_s=(
+                                    now_monotonic - modeState.last_switch
+                                ),
                             )
                             if config['dualScreen']:
                                 virtual1 = drawPlaneAlertSignage(
@@ -1503,6 +1582,9 @@ try:
                                     width=widgetWidth,
                                     height=widgetHeight,
                                     alerts=alerts,
+                                    mode_elapsed_s=(
+                                        now_monotonic - modeState.last_switch
+                                    ),
                                 )
                         elif config["transport"]["fallbackMode"] == "train":
                             data = displayCaches["train"].snapshot(now_monotonic).value
