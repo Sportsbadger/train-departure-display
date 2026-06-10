@@ -6,7 +6,7 @@ import json
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Iterable, Mapping, Sequence
-from urllib.parse import urlencode, urlsplit, urlunsplit
+from urllib.parse import SplitResult, parse_qsl, urlencode, urlsplit, urlunsplit
 
 import requests
 
@@ -122,6 +122,7 @@ def fetch_plane_alert_json(
             "text/csv;q=0.9, */*;q=0.1"
         ),
         "Accept-Encoding": "gzip, deflate",
+        "Accept-Language": "en-GB,en;q=0.9,en-US;q=0.8",
         "User-Agent": user_agent,
     }
     response = requests.get(
@@ -144,30 +145,59 @@ def fetch_plane_alert_json(
 
 
 def ensure_plane_alert_api_url(source_url: str) -> str:
-    """Return the live Plane-Alert table stream URL for legacy query URLs.
+    """Return the live Plane-Alert table stream URL.
 
     Args:
         source_url: Configured Plane-Alert source URL.
 
     Returns:
-        The original stream URL, or a canonical ``stream.sh`` URL when the
-        source targets stale ``pa_query.php`` data.
+        The original non-Plane-Alert URL, or a canonical ``stream.sh`` URL for
+        live Plane-Alert history. When the URL omits a port, the docker-
+        planefence Plane-Alert web port ``8083`` is used.
     """
     split_url = urlsplit(source_url)
     if split_url.path.endswith("/cgi/stream.sh"):
-        return source_url
+        return urlunsplit(
+            (
+                split_url.scheme,
+                _plane_alert_stream_netloc(split_url),
+                split_url.path,
+                _plane_alert_stream_query(split_url.query),
+                split_url.fragment,
+            ),
+        )
+
     if not split_url.path.endswith("/pa_query.php"):
         return source_url
 
     return urlunsplit(
         (
             split_url.scheme,
-            split_url.netloc,
+            _plane_alert_stream_netloc(split_url),
             "/cgi/stream.sh",
             urlencode({"mode": "plane-alert", "date": "all"}),
             split_url.fragment,
         ),
     )
+
+
+def _plane_alert_stream_netloc(split_url: SplitResult) -> str:
+    if split_url.port is not None or split_url.scheme != "http":
+        return split_url.netloc
+
+    host = split_url.hostname or split_url.netloc
+    if not host:
+        return split_url.netloc
+    if ":" in host and not host.startswith("["):
+        host = f"[{host}]"
+    return f"{host}:8083"
+
+
+def _plane_alert_stream_query(query: str) -> str:
+    params = dict(parse_qsl(query, keep_blank_values=True))
+    params["mode"] = "plane-alert"
+    params["date"] = "all"
+    return urlencode(params)
 
 
 def decode_plane_alert_response(text: str, status_code: int | None = None) -> Any:

@@ -28,6 +28,7 @@ def test_adsb_config_defaults_to_disabled_train_only(monkeypatch):
         "planeAlertEnabled",
         "planeAlertSourceUrl",
         "planeAlertFetchTimeout",
+        "planeAlertUserAgent",
         "planeAlertDisplayCount",
         "planeAlertTopLeftTemplate",
         "planeAlertTopRightTemplate",
@@ -55,6 +56,7 @@ def test_adsb_config_defaults_to_disabled_train_only(monkeypatch):
     assert config["adsb"]["homeLat"] is None
     assert config["adsb"]["homeLon"] is None
     assert config["adsb"]["userAgent"].startswith("Mozilla/5.0")
+    assert "Chrome/" in config["planeAlert"]["userAgent"]
     assert config["adsb"]["routeLookupEnabled"] is False
     assert "routeset" in config["adsb"]["routeApiUrl"]
     assert config["adsb"]["routeFetchTimeout"] == 4.0

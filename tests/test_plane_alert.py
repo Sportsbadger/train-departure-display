@@ -46,8 +46,11 @@ def test_fetch_plane_alert_json_sends_configured_user_agent(monkeypatch):
     )
 
     assert result == [{"hex": "AE1234"}]
-    assert calls["url"].endswith("/cgi/stream.sh?mode=plane-alert&date=all")
+    assert calls["url"] == (
+        "http://example.test:8083/cgi/stream.sh?mode=plane-alert&date=all"
+    )
     assert calls["headers"]["User-Agent"] == "Mozilla/5.0 TestDisplay"
+    assert calls["headers"]["Accept-Language"].startswith("en-GB")
     assert "application/json" in calls["headers"]["Accept"]
     assert "gzip" in calls["headers"]["Accept-Encoding"]
     assert calls["timeout"] == 2.0
@@ -343,10 +346,13 @@ def test_ensure_plane_alert_api_url_upgrades_legacy_query_endpoint():
 
     assert ensure_plane_alert_api_url(
         "http://host/plane-alert/pa_query.php?timestamp=.*"
-    ) == "http://host/cgi/stream.sh?mode=plane-alert&date=all"
+    ) == "http://host:8083/cgi/stream.sh?mode=plane-alert&date=all"
     assert ensure_plane_alert_api_url(
-        "http://host/cgi/stream.sh?mode=plane-alert&date=all&ts=123"
-    ) == "http://host/cgi/stream.sh?mode=plane-alert&date=all&ts=123"
+        "http://host:9999/plane-alert/pa_query.php?timestamp=.*"
+    ) == "http://host:9999/cgi/stream.sh?mode=plane-alert&date=all"
+    assert ensure_plane_alert_api_url(
+        "http://host/cgi/stream.sh?ts=123"
+    ) == "http://host:8083/cgi/stream.sh?ts=123&mode=plane-alert&date=all"
 
 
 def test_decode_plane_alert_response_accepts_utf8_sig_csv():
