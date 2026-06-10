@@ -233,16 +233,84 @@ def build_record_boards(
     ]
 
 
+def record_board_page_count(
+    board: AdsbRecordBoard,
+    rows_per_page: int = 2,
+) -> int:
+    """Return display pages needed for one ADS-B record board.
+
+    Args:
+        board: Record board to paginate.
+        rows_per_page: Maximum metric records shown on each page.
+
+    Returns:
+        At least one page for each board, even when still collecting records.
+    """
+    safe_rows = max(1, rows_per_page)
+    if not board.records:
+        return 1
+    return max(1, (len(board.records) + safe_rows - 1) // safe_rows)
+
+
+def record_mode_entry_count(
+    boards: list[AdsbRecordBoard],
+    rows_per_page: int = 2,
+) -> int:
+    """Return total display pages for all ADS-B record boards."""
+    if not boards:
+        return 1
+    return sum(record_board_page_count(board, rows_per_page) for board in boards)
+
+
+def select_record_display_page(
+    boards: list[AdsbRecordBoard],
+    now: float,
+    interval_s: float,
+    rows_per_page: int = 2,
+) -> tuple[AdsbRecordBoard | None, list[AdsbMetricRecord]]:
+    """Select the active ADS-B record board and metric rows.
+
+    Args:
+        boards: Available day/week/forever record boards.
+        now: Elapsed or monotonic seconds used for deterministic paging.
+        interval_s: Seconds to keep each metric page active.
+        rows_per_page: Maximum metric records shown in lower compact rows.
+
+    Returns:
+        Selected board and its visible metric rows. If no boards are available,
+        returns ``(None, [])``.
+    """
+    if not boards:
+        return None, []
+
+    safe_interval = max(interval_s, 1.0)
+    safe_rows = max(1, rows_per_page)
+    page_index = int(now // safe_interval) % record_mode_entry_count(
+        boards,
+        safe_rows,
+    )
+
+    for board in boards:
+        board_pages = record_board_page_count(board, safe_rows)
+        if page_index >= board_pages:
+            page_index -= board_pages
+            continue
+        start = page_index * safe_rows
+        return board, board.records[start:start + safe_rows]
+
+    return boards[0], boards[0].records[:safe_rows]
+
+
 def select_record_board_index(
     boards: list[AdsbRecordBoard],
     now: float,
     interval_s: float,
 ) -> int:
     """Select which ADS-B record board should be displayed."""
-    if not boards:
+    board, _rows = select_record_display_page(boards, now, interval_s)
+    if board is None:
         return 0
-    safe_interval = max(interval_s, 1.0)
-    return int(now // safe_interval) % len(boards)
+    return boards.index(board)
 
 
 def build_record_summary_text(board: AdsbRecordBoard) -> str:
@@ -357,17 +425,26 @@ def _load_store(store_path: Path) -> dict[str, Any]:
         raise AdsbRecordStoreError(
             f"ADS-B records store is not valid JSON: {store_path}"
         ) from err
+    except OSError as err:
+        raise AdsbRecordStoreError(
+            f"ADS-B records store could not be read: {store_path}"
+        ) from err
     if not isinstance(payload, dict):
         raise AdsbRecordStoreError("ADS-B records store must be a JSON object")
     return payload
 
 
 def _write_store(store_path: Path, payload: Mapping[str, Any]) -> None:
-    store_path.parent.mkdir(parents=True, exist_ok=True)
-    temp_path = store_path.with_suffix(f"{store_path.suffix}.tmp")
-    with temp_path.open("w", encoding="utf-8") as file_handle:
-        json.dump(payload, file_handle, ensure_ascii=False, separators=(",", ":"))
-    temp_path.replace(store_path)
+    try:
+        store_path.parent.mkdir(parents=True, exist_ok=True)
+        temp_path = store_path.with_suffix(f"{store_path.suffix}.tmp")
+        with temp_path.open("w", encoding="utf-8") as file_handle:
+            json.dump(payload, file_handle, ensure_ascii=False, separators=(",", ":"))
+        temp_path.replace(store_path)
+    except OSError as err:
+        raise AdsbRecordStoreError(
+            f"ADS-B records store could not be written: {store_path}"
+        ) from err
 
 
 def _read_observations(store: Mapping[str, Any]) -> list[AdsbRecordObservation]:

@@ -31,7 +31,8 @@ from adsb_records import (
     build_record_summary_text,
     format_record_line,
     load_adsb_record_boards,
-    select_record_board_index,
+    record_mode_entry_count,
+    select_record_display_page,
     update_adsb_record_store,
 )
 from config import loadConfig
@@ -193,7 +194,7 @@ def mode_entry_count(
     if mode == "plane-alert" and isinstance(value, list):
         return max(1, min(len(value), int(app_config["planeAlert"]["displayCount"])))
     if mode == "adsb-records" and isinstance(value, list):
-        return max(1, len(value))
+        return record_mode_entry_count(value)
     if mode != "train" or not isinstance(value, tuple) or len(value) < 1:
         return 1
 
@@ -1005,16 +1006,22 @@ def drawAdsbRecordsSignage(
     loop_block_height = loop_row_gap * 2
     loop_frame_interval = 0.02
 
-    board_index = select_record_board_index(
+    board, record_rows = select_record_display_page(
         boards,
         mode_elapsed_s if mode_elapsed_s is not None else time.monotonic(),
         mode_entry_interval_s("adsb-records", config),
     )
-    board = boards[board_index]
+    if board is None:
+        return drawBlankSignage(
+            device,
+            width=width,
+            height=height,
+            departureStation="No ADS-B records",
+        )
+
     top_left_text = f"{board.title} records"
     top_right_text = f"{board.observation_count} hits"
     scroll_text = build_record_summary_text(board)
-    record_rows = board.records[:2]
 
     rowOne = snapshot(
         width,
