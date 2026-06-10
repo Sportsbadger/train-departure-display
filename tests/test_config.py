@@ -28,6 +28,7 @@ def test_adsb_config_defaults_to_disabled_train_only(monkeypatch):
         "planeAlertEnabled",
         "planeAlertSourceUrl",
         "planeAlertFetchTimeout",
+        "planeAlertDisplayCount",
         "planeAlertTopLeftTemplate",
         "planeAlertTopRightTemplate",
         "planeAlertScrollTemplate",
@@ -64,8 +65,10 @@ def test_adsb_config_defaults_to_disabled_train_only(monkeypatch):
     assert config["adsb"]["nextLeftTemplate"] == "{loop_aircraft}"
     assert config["adsb"]["nextRightTemplate"] == "{loop_info}"
     assert config["planeAlert"]["enabled"] is False
-    assert ":8088/plane-alert/pa_query.php" in config["planeAlert"]["sourceUrl"]
-    assert config["planeAlert"]["fetchTimeout"] == 15.0
+    assert ":8083/cgi/stream.sh" in config["planeAlert"]["sourceUrl"]
+    assert "mode=plane-alert" in config["planeAlert"]["sourceUrl"]
+    assert config["planeAlert"]["fetchTimeout"] == 90.0
+    assert config["planeAlert"]["displayCount"] == 30
     assert config["planeAlert"]["topLeftTemplate"] == "{summary_left}"
     assert config["planeAlert"]["topRightTemplate"] == "{summary_right}"
     assert config["planeAlert"]["scrollTemplate"] == "{detail}"
@@ -166,3 +169,11 @@ def test_adsb_config_parses_enabled_values(monkeypatch):
     assert config["alerts"]["topTemplate"] == "{display_name}"
     assert config["alerts"]["middleTemplate"] == "{equipment}"
     assert config["alerts"]["bottomTemplate"] == "{raw}"
+
+
+def test_plane_alert_display_count_caps_at_latest_30(monkeypatch):
+    monkeypatch.setenv("planeAlertDisplayCount", "99")
+
+    config = loadConfig()
+
+    assert config["planeAlert"]["displayCount"] == 30

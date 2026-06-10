@@ -6,7 +6,7 @@ import json
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Iterable, Mapping, Sequence
-from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+from urllib.parse import urlencode, urlsplit, urlunsplit
 
 import requests
 
@@ -41,10 +41,12 @@ CSV_FIELD_ALIASES: Mapping[str, tuple[str, ...]] = {
         "description",
     ),
     "timestamp": (
+        "time:time_at_mindist",
+        "time:lastseen",
+        "time:firstseen",
         "timestamp",
         "first_seen",
         "last_seen",
-        "time:time_at_mindist",
         "time_at_mindist",
         "time",
         "date/time",
@@ -76,6 +78,9 @@ class PlaneAlert:
     timestamp: datetime | None
     lat: float | None
     lon: float | None
+    index: int | None = None
+    distance: str = ""
+    altitude: str = ""
 
     @property
     def display_name(self) -> str:
@@ -85,6 +90,13 @@ class PlaneAlert:
         if self.tail:
             return self.tail
         return self.hex.upper()
+
+    @property
+    def display_index(self) -> int | None:
+        """Return the row number shown by the Plane-Alert web UI."""
+        if self.index is None:
+            return None
+        return self.index + 1
 
 
 class PlaneAlertDataError(ValueError):
@@ -98,14 +110,13 @@ def fetch_plane_alert_json(
 ) -> Any:
     """Fetch Plane-Alert API data from docker-planefence.
 
-    The documented Plane-Alert endpoint is ``/plane-alert/pa_query.php`` and
-    supports ``type=json`` and ``type=csv`` query output. This function keeps
-    the historic name for compatibility but deliberately accepts either JSON or
-    CSV responses because some deployments/proxies return CSV even when the URL
-    was configured manually.
+    The live Plane-Alert table is backed by ``/cgi/stream.sh`` and returns
+    newline-delimited JSON (one object per line). This function keeps the
+    historic name for compatibility but accepts JSON arrays/objects, NDJSON,
+    and CSV fallback responses.
 
     Args:
-        source_url: HTTP URL for ``pa_query.php`` including query parameters.
+        source_url: HTTP URL for the Plane-Alert stream or legacy query endpoint.
         timeout_s: Maximum request time in seconds.
         user_agent: HTTP User-Agent header for reverse proxies.
 
@@ -140,40 +151,46 @@ def fetch_plane_alert_json(
 
 
 def ensure_plane_alert_api_url(source_url: str) -> str:
-    """Return a Plane-Alert API URL with an explicit ``type=json`` parameter.
+    """Return a live Plane-Alert stream URL.
+
+    Legacy ``pa_query.php`` URLs are stale relative to the web UI, so they are
+    upgraded to the same stream endpoint used by the table. Existing
+    ``stream.sh`` URLs are left unchanged.
 
     Args:
-        source_url: Configured Plane-Alert API URL.
+        source_url: Configured Plane-Alert source URL.
 
     Returns:
-        URL with ``type=json`` added when no ``type`` query parameter exists.
+        URL targeting ``/cgi/stream.sh?mode=plane-alert&date=all`` unless the
+        input is already a stream URL.
     """
     split_url = urlsplit(source_url)
-    query_items = parse_qsl(split_url.query, keep_blank_values=True)
-    if any(key.lower() == "type" for key, _value in query_items):
+    if split_url.path.endswith("/cgi/stream.sh"):
         return source_url
 
-    query_items.append(("type", "json"))
+    if not split_url.path.endswith("/pa_query.php"):
+        return source_url
+
     return urlunsplit(
         (
             split_url.scheme,
             split_url.netloc,
-            split_url.path,
-            urlencode(query_items),
+            "/cgi/stream.sh",
+            urlencode({"mode": "plane-alert", "date": "all"}),
             split_url.fragment,
         ),
     )
 
 
 def decode_plane_alert_response(text: str, status_code: int | None = None) -> Any:
-    """Decode a Plane-Alert response body as JSON, then CSV fallback.
+    """Decode a Plane-Alert response body as JSON, NDJSON, then CSV fallback.
 
     Args:
         text: HTTP response body.
         status_code: Optional HTTP status for error messages.
 
     Returns:
-        Decoded JSON value, or CSV records as dictionaries.
+        Decoded JSON value, NDJSON records, or CSV records as dictionaries.
 
     Raises:
         PlaneAlertDataError: If response body cannot be decoded.
@@ -185,6 +202,10 @@ def decode_plane_alert_response(text: str, status_code: int | None = None) -> An
     try:
         return json.loads(stripped)
     except json.JSONDecodeError as json_err:
+        ndjson_records = _parse_ndjson_records(stripped)
+        if ndjson_records is not None:
+            return ndjson_records
+
         csv_records = _parse_csv_records(stripped)
         if csv_records is not None:
             return csv_records
@@ -192,7 +213,8 @@ def decode_plane_alert_response(text: str, status_code: int | None = None) -> An
         body_preview = stripped[:120] or "<empty response>"
         status_text = f"HTTP {status_code}: " if status_code is not None else ""
         raise PlaneAlertDataError(
-            f"Plane-Alert response was not JSON or CSV ({status_text}{body_preview})",
+            "Plane-Alert response was not JSON, NDJSON, or CSV "
+            f"({status_text}{body_preview})",
         ) from json_err
 
 
@@ -205,9 +227,9 @@ def parse_plane_alerts(
     """Parse, filter, de-duplicate, and sort Plane-Alert records newest-first.
 
     Args:
-        payload: Decoded ``pa_query.php`` JSON/CSV payload.
+        payload: Decoded Plane-Alert JSON, NDJSON, or CSV payload.
         max_age_hours: Optional maximum alert age in hours.
-        limit: Maximum number of alerts to return.
+        limit: Maximum number of most recent alerts to return.
         now: Optional current time used by tests.
 
     Returns:
@@ -220,10 +242,11 @@ def parse_plane_alerts(
         return []
 
     records = _extract_records(payload)
+    require_numeric_index = _contains_indexed_records(records)
     alerts = [
         parsed
         for item in records
-        for parsed in [_coerce_plane_alert_item(item)]
+        for parsed in [_coerce_plane_alert_item(item, require_numeric_index)]
         if parsed is not None
     ]
     filtered = [
@@ -231,11 +254,7 @@ def parse_plane_alerts(
         for alert in _dedupe_alerts(alerts)
         if _passes_age_filter(alert, max_age_hours, now)
     ]
-    return sorted(
-        filtered,
-        key=lambda alert: alert.timestamp or datetime.min,
-        reverse=True,
-    )[:limit]
+    return sorted(filtered, key=_plane_alert_sort_key, reverse=True)[:limit]
 
 
 def select_plane_alert_scroll_alerts(
@@ -414,6 +433,10 @@ def build_plane_alert_loop_info_text(alert: PlaneAlert) -> str:
 def build_plane_alert_detail_text(alert: PlaneAlert) -> str:
     """Build the scrolling detail line for a Plane-Alert record."""
     parts = [alert.equipment, alert.name, alert.hex.upper()]
+    if alert.distance:
+        parts.append(alert.distance)
+    if alert.altitude:
+        parts.append(alert.altitude)
     if alert.lat is not None and alert.lon is not None:
         parts.append(f"{alert.lat:.3f},{alert.lon:.3f}")
     if alert.timestamp is not None:
@@ -466,6 +489,14 @@ def _plane_alert_template_value(
             return "" if alert.lat is None else f"{alert.lat:.3f}"
         case "longitude":
             return "" if alert.lon is None else f"{alert.lon:.3f}"
+        case "index":
+            return alert.display_index or ""
+        case "raw_index":
+            return alert.index if alert.index is not None else ""
+        case "distance":
+            return alert.distance
+        case "altitude":
+            return alert.altitude
         case "position":
             return position or ""
         case "position_ordinal":
@@ -507,16 +538,26 @@ def _extract_records(payload: Any) -> list[Any]:
     raise PlaneAlertDataError("Plane-Alert response must contain a records list")
 
 
-def _coerce_plane_alert_item(item: Any) -> PlaneAlert | None:
+def _coerce_plane_alert_item(
+    item: Any,
+    require_numeric_index: bool,
+) -> PlaneAlert | None:
     if isinstance(item, Mapping):
-        return _parse_plane_alert_mapping(item)
+        return _parse_plane_alert_mapping(item, require_numeric_index)
     if isinstance(item, Sequence) and not isinstance(item, (str, bytes, bytearray)):
         return _parse_plane_alert_sequence(item)
     return None
 
 
-def _parse_plane_alert_mapping(item: Mapping[str, Any]) -> PlaneAlert | None:
+def _parse_plane_alert_mapping(
+    item: Mapping[str, Any],
+    require_numeric_index: bool = False,
+) -> PlaneAlert | None:
     normalized = {_normalize_header(key): value for key, value in item.items()}
+    index = _optional_int(normalized.get("index"))
+    if require_numeric_index and index is None:
+        return None
+
     hex_value = _first_clean_text(normalized, *CSV_FIELD_ALIASES["hex"])
     tail = _first_clean_text(normalized, *CSV_FIELD_ALIASES["tail"])
     call = _first_clean_text(normalized, *CSV_FIELD_ALIASES["call"])
@@ -537,6 +578,9 @@ def _parse_plane_alert_mapping(item: Mapping[str, Any]) -> PlaneAlert | None:
         ),
         lat=_optional_float(_first_value(normalized, *CSV_FIELD_ALIASES["lat"])),
         lon=_optional_float(_first_value(normalized, *CSV_FIELD_ALIASES["lon"])),
+        index=index,
+        distance=_format_measurement(normalized, "distance"),
+        altitude=_format_measurement(normalized, "altitude"),
     )
 
 
@@ -561,14 +605,32 @@ def _parse_plane_alert_sequence(item: Sequence[Any]) -> PlaneAlert | None:
     return _parse_plane_alert_mapping(record)
 
 
+def _contains_indexed_records(records: Sequence[Any]) -> bool:
+    for record in records:
+        if not isinstance(record, Mapping):
+            continue
+        if any(_normalize_header(key) == "index" for key in record):
+            return True
+    return False
+
+
+def _plane_alert_sort_key(alert: PlaneAlert) -> tuple[int, int, datetime]:
+    if alert.index is not None:
+        return (1, alert.index, alert.timestamp or datetime.min)
+    return (0, 0, alert.timestamp or datetime.min)
+
+
 def _dedupe_alerts(alerts: Iterable[PlaneAlert]) -> list[PlaneAlert]:
     deduped: dict[tuple[str, str, str], PlaneAlert] = {}
     for alert in alerts:
-        key = (
-            alert.hex.upper(),
-            alert.call.upper(),
-            alert.timestamp.isoformat() if alert.timestamp is not None else "",
-        )
+        if alert.index is not None:
+            key = ("index", str(alert.index), "")
+        else:
+            key = (
+                alert.hex.upper(),
+                alert.call.upper(),
+                alert.timestamp.isoformat() if alert.timestamp is not None else "",
+            )
         existing = deduped.get(key)
         if existing is None or _field_score(alert) > _field_score(existing):
             deduped[key] = alert
@@ -587,6 +649,9 @@ def _field_score(alert: PlaneAlert) -> int:
             alert.timestamp,
             alert.lat,
             alert.lon,
+            alert.index,
+            alert.distance,
+            alert.altitude,
         )
         if value not in (None, "")
     )
@@ -622,6 +687,26 @@ def _parse_timestamp(value: str) -> datetime | None:
         )
     except ValueError:
         return None
+
+
+def _parse_ndjson_records(text: str) -> list[dict[str, Any]] | None:
+    records: list[dict[str, Any]] = []
+    saw_json_line = False
+    for line in text.splitlines():
+        stripped_line = line.strip()
+        if not stripped_line:
+            continue
+        try:
+            value = json.loads(stripped_line)
+        except json.JSONDecodeError:
+            continue
+        saw_json_line = True
+        if isinstance(value, Mapping):
+            records.append(dict(value))
+
+    if not saw_json_line:
+        return None
+    return records
 
 
 def _parse_csv_records(text: str) -> list[dict[str, str]] | None:
@@ -701,6 +786,25 @@ def _optional_float(value: Any) -> float | None:
         return float(value)
     except (TypeError, ValueError):
         return None
+
+
+def _optional_int(value: Any) -> int | None:
+    if value in (None, ""):
+        return None
+    try:
+        return int(str(value).strip())
+    except (TypeError, ValueError):
+        return None
+
+
+def _format_measurement(item: Mapping[str, Any], prefix: str) -> str:
+    value = _clean_text(item.get(f"{prefix}:value"))
+    if not value:
+        return ""
+    unit = _clean_text(item.get(f"{prefix}:unit"))
+    if not unit:
+        return value
+    return f"{value} {unit}"
 
 
 def _ordinal_text(position: int | None) -> str:

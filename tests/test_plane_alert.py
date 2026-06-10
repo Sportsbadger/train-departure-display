@@ -46,7 +46,7 @@ def test_fetch_plane_alert_json_sends_configured_user_agent(monkeypatch):
     )
 
     assert result == [{"hex": "AE1234"}]
-    assert calls["url"].endswith("pa_query.php?timestamp=.*&type=json")
+    assert calls["url"].endswith("/cgi/stream.sh?mode=plane-alert&date=all")
     assert calls["headers"]["User-Agent"] == "Mozilla/5.0 TestDisplay"
     assert "application/json" in calls["headers"]["Accept"]
     assert "gzip" in calls["headers"]["Accept-Encoding"]
@@ -143,6 +143,54 @@ def test_parse_plane_alerts_accepts_docker_planefence_query_keys():
     assert result[0].name == "USAF"
     assert result[0].equipment == "Boeing C-32A"
     assert result[0].timestamp == datetime(2026, 6, 6, 11, 30, 0)
+
+
+def test_decode_plane_alert_response_accepts_ndjson_and_index_sorting():
+    from plane_alert import decode_plane_alert_response
+
+    payload = "\n".join(
+        [
+            '{"index":"329","icao":"A7C683","callsign":"N60SN",'
+            '"tail":"N60SN","type":"FA8X","owner":"SONY AVIATION",'
+            '"distance:value":"66.63","altitude:value":"41000"}',
+            '{"index":null,"icao":"SKIPME"}',
+            '{"index":"bad","icao":"SKIPME2"}',
+            '{"index":"330","icao":"440890","callsign":"TYW758",'
+            '"tail":"OE-GKW","type":"ASTR","owner":"TYROL AIR AMBULANCE",'
+            '"time:lastseen":"2026/06/06 11:31:00",'
+            '"distance:value":"26.12","distance:unit":"nm",'
+            '"altitude:value":"17000","altitude:unit":"ft"}',
+        ]
+    )
+
+    result = parse_plane_alerts(
+        decode_plane_alert_response(payload),
+        max_age_hours=None,
+        limit=10,
+    )
+
+    assert [alert.hex for alert in result] == ["440890", "A7C683"]
+    assert result[0].index == 330
+    assert result[0].display_index == 331
+    assert result[0].distance == "26.12 nm"
+    assert result[0].altitude == "17000 ft"
+
+
+def test_parse_plane_alerts_returns_30_most_recent_indexed_records():
+    payload = [
+        {
+            "index": str(index),
+            "icao": f"AE{index:04d}",
+            "callsign": f"TEST{index}",
+        }
+        for index in range(40)
+    ]
+
+    result = parse_plane_alerts(payload, max_age_hours=None, limit=30)
+
+    assert len(result) == 30
+    assert [alert.index for alert in result] == list(range(39, 9, -1))
+    assert [alert.display_index for alert in result[:3]] == [40, 39, 38]
 
 
 def test_parse_plane_alerts_accepts_mapping_of_records_and_limit():
@@ -254,15 +302,15 @@ def test_select_secondary_plane_alert_display_rows_adds_last_line_marker():
     ]
 
 
-def test_ensure_plane_alert_api_url_adds_json_type_once():
+def test_ensure_plane_alert_api_url_upgrades_legacy_query_endpoint():
     from plane_alert import ensure_plane_alert_api_url
 
     assert ensure_plane_alert_api_url(
         "http://host/plane-alert/pa_query.php?timestamp=.*"
-    ) == "http://host/plane-alert/pa_query.php?timestamp=.%2A&type=json"
+    ) == "http://host/cgi/stream.sh?mode=plane-alert&date=all"
     assert ensure_plane_alert_api_url(
-        "http://host/plane-alert/pa_query.php?timestamp=.*&type=csv"
-    ).endswith("timestamp=.*&type=csv")
+        "http://host/cgi/stream.sh?mode=plane-alert&date=all&ts=123"
+    ) == "http://host/cgi/stream.sh?mode=plane-alert&date=all&ts=123"
 
 
 def test_decode_plane_alert_response_accepts_utf8_sig_csv():

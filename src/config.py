@@ -19,6 +19,7 @@ DEFAULT_ALERT_TOP_TEMPLATE = "{headline}"
 DEFAULT_ALERT_MIDDLE_TEMPLATE = "{equipment}  {name}"
 DEFAULT_ALERT_BOTTOM_TEMPLATE = "{detail}"
 DEFAULT_LAST_LINE_TEXT = "****Last Line****"
+MAX_PLANE_ALERT_DISPLAY_COUNT = 30
 
 
 def _env_bool(name: str, default: bool = False) -> bool:
@@ -28,10 +29,17 @@ def _env_bool(name: str, default: bool = False) -> bool:
     return value.upper() == "TRUE"
 
 
-def _env_int(name: str, default: int, minimum: int | None = None) -> int:
+def _env_int(
+    name: str,
+    default: int,
+    minimum: int | None = None,
+    maximum: int | None = None,
+) -> int:
     value = int(os.getenv(name) or default)
     if minimum is not None and value < minimum:
         return minimum
+    if maximum is not None and value > maximum:
+        return maximum
     return value
 
 
@@ -196,7 +204,7 @@ def loadConfig():
     data["planeAlert"]["enabled"] = _env_bool("planeAlertEnabled", False)
     data["planeAlert"]["sourceUrl"] = (
         os.getenv("planeAlertSourceUrl")
-        or "http://192.168.1.74:8088/plane-alert/pa_query.php?timestamp=.*&type=json"
+        or "http://192.168.1.74:8083/cgi/stream.sh?mode=plane-alert&date=all"
     )
     data["planeAlert"]["userAgent"] = (
         os.getenv("planeAlertUserAgent")
@@ -204,7 +212,7 @@ def loadConfig():
     )
     data["planeAlert"]["fetchTimeout"] = _env_float(
         "planeAlertFetchTimeout",
-        15.0,
+        90.0,
         minimum=0.1,
     )
     data["planeAlert"]["refreshTime"] = _env_int(
@@ -214,8 +222,9 @@ def loadConfig():
     )
     data["planeAlert"]["displayCount"] = _env_int(
         "planeAlertDisplayCount",
-        5,
+        MAX_PLANE_ALERT_DISPLAY_COUNT,
         minimum=1,
+        maximum=MAX_PLANE_ALERT_DISPLAY_COUNT,
     )
     data["planeAlert"]["maxAgeHours"] = _env_optional_float(
         "planeAlertMaxAgeHours",
