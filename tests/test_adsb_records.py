@@ -95,7 +95,7 @@ def metric_record(metric: str, value: float) -> AdsbMetricRecord:
     )
 
 
-def test_select_record_display_page_keeps_metrics_across_cycles():
+def test_select_record_display_page_keeps_full_window_cycle_together():
     boards = [
         AdsbRecordBoard(
             window="day",
@@ -107,47 +107,44 @@ def test_select_record_display_page_keeps_metrics_across_cycles():
                 metric_record("fastest", 500),
                 metric_record("slowest", 120),
                 metric_record("furthest", 80),
+                metric_record("nearest", 1),
+                metric_record("climb", 2_000),
+                metric_record("descent", -1_500),
             ],
         ),
         AdsbRecordBoard(
             window="week",
-            title="Last 7d",
+            title="Last 7 Days",
             observation_count=1,
-            records=[metric_record("nearest", 1)],
+            records=[metric_record("highest", 41_000)],
         ),
     ]
 
-    assert record_mode_entry_count(boards) == 4
+    assert record_mode_entry_count(boards) == 5
 
-    first_board, first_rows = select_record_display_page(
-        boards,
-        now=0.0,
-        interval_s=10.0,
-    )
-    second_board, second_rows = select_record_display_page(
-        boards,
-        now=10.0,
-        interval_s=10.0,
-    )
-    third_board, third_rows = select_record_display_page(
-        boards,
-        now=20.0,
-        interval_s=10.0,
-    )
+    expected_day_pages = [
+        (0.0, ["highest", "lowest"]),
+        (10.0, ["fastest", "slowest"]),
+        (20.0, ["furthest", "nearest"]),
+        (30.0, ["climb", "descent"]),
+    ]
+    for now, expected_metrics in expected_day_pages:
+        board, rows = select_record_display_page(
+            boards,
+            now=now,
+            interval_s=10.0,
+        )
+        assert board is boards[0]
+        assert [record.metric for record in rows] == expected_metrics
+
     week_board, week_rows = select_record_display_page(
         boards,
-        now=30.0,
+        now=40.0,
         interval_s=10.0,
     )
 
-    assert first_board is boards[0]
-    assert [record.metric for record in first_rows] == ["highest", "lowest"]
-    assert second_board is boards[0]
-    assert [record.metric for record in second_rows] == ["fastest", "slowest"]
-    assert third_board is boards[0]
-    assert [record.metric for record in third_rows] == ["furthest"]
     assert week_board is boards[1]
-    assert [record.metric for record in week_rows] == ["nearest"]
+    assert [record.metric for record in week_rows] == ["highest"]
 
 
 def test_normalize_record_windows_accepts_requested_totals():

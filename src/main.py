@@ -1021,7 +1021,7 @@ def drawAdsbRecordsSignage(
             departureStation="No ADS-B records",
         )
 
-    top_left_text = f"{board.title} records"
+    top_left_text = board.title
     top_right_text = f"{board.observation_count} hits"
     scroll_text = build_record_summary_text(board)
 
