@@ -39,7 +39,7 @@ ADS-B support is disabled by default. When enabled, the display can alternate be
 
 | Key | Example Value
 |-----|----------
-| `adsbEnabled` | `True` (enables ADS-B mode as an available transport mode)
+| `adsbEnabled` | `True` (enables ADS-B mode as an available transport mode; including `adsb` in `transportModes` also enables it)
 | `transportModes` | `train,adsb` (ordered comma-separated modes to display; use `adsb` for ADS-B only; when unset or left as `train`, enabled optional boards are appended after `train`)
 | `modeSwitchInterval` | `300` (seconds before switching to the next configured mode)
 | `transportFallbackMode` | `train` (fallback shown if ADS-B fetch/parsing fails; set to anything else to show an ADS-B unavailable screen instead)
@@ -83,7 +83,7 @@ Plane-Alert support is disabled by default. When enabled, the display can altern
 
 | Key | Example Value
 |-----|----------
-| `planeAlertEnabled` | `True` (enables Plane-Alert mode as an available transport mode)
+| `planeAlertEnabled` | `True` (enables Plane-Alert mode as an available transport mode; including `plane-alert` in `transportModes` also enables it)
 | `transportModes` | `train,adsb,plane-alert` (ordered comma-separated modes to display; `planealert` is also accepted; when unset or left as `train`, enabled ADS-B/Plane-Alert boards are appended after `train`)
 | `modeSwitchInterval` | `300` (seconds before switching to the next configured mode)
 | `transportFallbackMode` | `train` (fallback shown if Plane-Alert fetch/parsing fails; set to anything else to show a Plane-Alert unavailable screen instead)

@@ -77,6 +77,15 @@ def parsePlatformData(platform):
         return ""
 
 
+def _transport_mode_requested(raw_modes: str | None, mode_names: set[str]) -> bool:
+    if raw_modes is None:
+        return False
+    return any(
+        raw_mode.strip().lower() in mode_names
+        for raw_mode in raw_modes.split(",")
+    )
+
+
 def _default_transport_modes(
     raw_modes: str | None,
     adsb_enabled: bool,
@@ -159,7 +168,12 @@ def loadConfig():
     if data["loopDepartureInterval"] < 1:
         data["loopDepartureInterval"] = 1
 
-    data["adsb"]["enabled"] = _env_bool("adsbEnabled", False)
+    raw_transport_modes = os.getenv("transportModes")
+
+    data["adsb"]["enabled"] = _env_bool(
+        "adsbEnabled",
+        False,
+    ) or _transport_mode_requested(raw_transport_modes, {"adsb"})
     data["adsb"]["sourceUrl"] = (
         os.getenv("adsbSourceUrl")
         or "http://192.168.1.74/readsb/data/aircraft.json"
@@ -219,7 +233,13 @@ def loadConfig():
         os.getenv("adsbNextRightTemplate") or DEFAULT_ADSB_NEXT_RIGHT_TEMPLATE
     )
 
-    data["planeAlert"]["enabled"] = _env_bool("planeAlertEnabled", False)
+    data["planeAlert"]["enabled"] = _env_bool(
+        "planeAlertEnabled",
+        False,
+    ) or _transport_mode_requested(
+        raw_transport_modes,
+        {"plane-alert", "planealert"},
+    )
     data["planeAlert"]["sourceUrl"] = (
         os.getenv("planeAlertSourceUrl")
         or "http://192.168.1.74:8083/cgi/stream.sh?mode=plane-alert&date=all"
@@ -307,7 +327,7 @@ def loadConfig():
     )
 
     data["transport"]["modes"] = _default_transport_modes(
-        os.getenv("transportModes"),
+        raw_transport_modes,
         data["adsb"]["enabled"],
         data["planeAlert"]["enabled"],
     )

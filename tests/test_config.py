@@ -209,3 +209,23 @@ def test_transport_modes_treats_train_env_as_default_when_plane_alert_enabled(
     config = loadConfig()
 
     assert config["transport"]["modes"] == "train,plane-alert"
+
+
+def test_transport_modes_plane_alert_entry_enables_plane_alert(monkeypatch):
+    monkeypatch.setenv("transportModes", "train,plane-alert")
+    monkeypatch.delenv("planeAlertEnabled", raising=False)
+
+    config = loadConfig()
+
+    assert config["planeAlert"]["enabled"] is True
+    assert config["transport"]["modes"] == "train,plane-alert"
+
+
+def test_transport_modes_adsb_entry_enables_adsb(monkeypatch):
+    monkeypatch.setenv("transportModes", "train,adsb")
+    monkeypatch.delenv("adsbEnabled", raising=False)
+
+    config = loadConfig()
+
+    assert config["adsb"]["enabled"] is True
+    assert config["transport"]["modes"] == "train,adsb"

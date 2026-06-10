@@ -16,4 +16,5 @@ def test_balena_defaults_use_live_plane_alert_stream():
 def test_balena_default_rotation_includes_plane_alert_when_enabled():
     text = BALENA_YML.read_text(encoding="utf-8")
 
+    assert "planeAlertEnabled: True" in text
     assert "transportModes: train,plane-alert" in text

@@ -77,7 +77,7 @@ data:
     - fpsTime: 10
     - debug: False
     - adsbEnabled: False
-    - planeAlertEnabled: False
+    - planeAlertEnabled: True
     - alertsEnabled: False
     - transportModes: train,plane-alert
     - modeSwitchInterval: 300
