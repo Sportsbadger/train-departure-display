@@ -179,7 +179,10 @@ def loadConfig():
     data["adsb"]["enabled"] = _env_bool(
         "adsbEnabled",
         False,
-    ) or _transport_mode_requested(raw_transport_modes, {"adsb"})
+    ) or _transport_mode_requested(
+        raw_transport_modes,
+        {"adsb", "adsb-records", "adsb-stats", "records"},
+    )
     data["adsb"]["sourceUrl"] = (
         os.getenv("adsbSourceUrl")
         or "http://192.168.1.74/readsb/data/aircraft.json"
@@ -237,6 +240,9 @@ def loadConfig():
     )
     data["adsb"]["nextRightTemplate"] = (
         os.getenv("adsbNextRightTemplate") or DEFAULT_ADSB_NEXT_RIGHT_TEMPLATE
+    )
+    data["adsb"]["recordsStorePath"] = (
+        os.getenv("adsbRecordsStorePath") or "data/adsb-records.json"
     )
 
     data["planeAlert"]["enabled"] = _env_bool(

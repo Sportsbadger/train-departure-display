@@ -34,6 +34,9 @@ def parse_modes(
     allowed = {"train"}
     if adsb_enabled:
         allowed.add("adsb")
+        allowed.add("adsb-records")
+        allowed.add("adsb-stats")
+        allowed.add("records")
     if plane_alert_enabled:
         allowed.add("plane-alert")
         allowed.add("planealert")
@@ -42,6 +45,8 @@ def parse_modes(
         mode = raw_mode.strip().lower()
         if mode == "planealert":
             mode = "plane-alert"
+        if mode in {"adsb-stats", "records"}:
+            mode = "adsb-records"
         if mode == "alerts" and alerts_enabled:
             continue
         if not mode or mode not in allowed or mode in modes:

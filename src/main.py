@@ -1,5 +1,6 @@
 import os
 import time
+from pathlib import Path
 
 import requests
 
@@ -23,6 +24,15 @@ from adsb import (
     parse_aircraft,
     select_featured_aircraft_index,
     select_secondary_aircraft_display_rows,
+)
+from adsb_records import (
+    AdsbRecordBoard,
+    AdsbRecordStoreError,
+    build_record_summary_text,
+    format_record_line,
+    load_adsb_record_boards,
+    select_record_board_index,
+    update_adsb_record_store,
 )
 from config import loadConfig
 from plane_alert import (
@@ -163,7 +173,7 @@ PLANE_ENTRY_SCROLL_MULTIPLIER = 2.0
 
 def mode_entry_interval_s(mode: str, app_config: dict[str, Any]) -> float:
     """Return seconds to keep a mode entry active before advancing."""
-    if mode in {"adsb", "plane-alert"}:
+    if mode in {"adsb", "adsb-records", "plane-alert"}:
         return max(
             1.0,
             float(app_config["loopDepartureInterval"])
@@ -182,6 +192,8 @@ def mode_entry_count(
         return max(1, min(len(value), int(app_config["adsb"]["displayCount"])))
     if mode == "plane-alert" and isinstance(value, list):
         return max(1, min(len(value), int(app_config["planeAlert"]["displayCount"])))
+    if mode == "adsb-records" and isinstance(value, list):
+        return max(1, len(value))
     if mode != "train" or not isinstance(value, tuple) or len(value) < 1:
         return 1
 
@@ -417,34 +429,50 @@ def loadAdsbData(adsbConfig):
             adsbConfig["minAltitudeFt"],
             int(adsbConfig["displayCount"]),
         )
-        if not adsbConfig["routeLookupEnabled"] or not aircraft:
-            return aircraft
+        if adsbConfig["routeLookupEnabled"] and aircraft:
+            try:
+                route_payload = fetch_route_lookup_json(
+                    adsbConfig["routeApiUrl"],
+                    aircraft,
+                    float(adsbConfig["routeFetchTimeout"]),
+                    adsbConfig["userAgent"],
+                )
+                aircraft = enrich_aircraft_routes(
+                    aircraft,
+                    route_payload,
+                    adsbConfig["routeDisplay"],
+                )
+            except requests.RequestException as err:
+                print("Warning: Failed to fetch ADS-B route data")
+                print(err)
+            except AdsbRouteDataError as err:
+                print(f"Warning: Failed to parse ADS-B route data: {err}")
 
         try:
-            route_payload = fetch_route_lookup_json(
-                adsbConfig["routeApiUrl"],
+            update_adsb_record_store(
+                Path(adsbConfig["recordsStorePath"]),
                 aircraft,
-                float(adsbConfig["routeFetchTimeout"]),
-                adsbConfig["userAgent"],
             )
-            return enrich_aircraft_routes(
-                aircraft,
-                route_payload,
-                adsbConfig["routeDisplay"],
-            )
-        except requests.RequestException as err:
-            print("Warning: Failed to fetch ADS-B route data")
-            print(err)
-            return aircraft
-        except AdsbRouteDataError as err:
-            print(f"Warning: Failed to parse ADS-B route data: {err}")
-            return aircraft
+        except AdsbRecordStoreError as err:
+            print(f"Warning: Failed to update ADS-B records: {err}")
+        return aircraft
     except requests.RequestException as err:
         print("Error: Failed to fetch ADS-B data")
         print(err)
         return False
     except AdsbDataError as err:
         print(f"Error: Failed to parse ADS-B data: {err}")
+        return False
+
+
+def loadAdsbRecordsData(adsbConfig: dict[str, Any]) -> list[AdsbRecordBoard] | bool:
+    """Load persisted ADS-B record boards for display."""
+    if not adsbConfig["enabled"]:
+        return False
+    try:
+        return load_adsb_record_boards(Path(adsbConfig["recordsStorePath"]))
+    except AdsbRecordStoreError as err:
+        print(f"Error: Failed to load ADS-B records: {err}")
         return False
 
 def drawStartup(device, width, height):
@@ -954,6 +982,108 @@ def drawAdsbSignage(
     return virtualViewport
 
 
+def drawAdsbRecordsSignage(
+    device: Any,
+    width: int,
+    height: int,
+    boards: list[AdsbRecordBoard],
+    mode_elapsed_s: float | None = None,
+) -> Any:
+    """Build ADS-B record signage for day, week, and all-time boards."""
+    if len(boards) == 0:
+        return drawBlankSignage(
+            device,
+            width=width,
+            height=height,
+            departureStation="No ADS-B records",
+        )
+
+    virtualViewport = viewport(device, width=width, height=height)
+    width = virtualViewport.width
+    firstFont = fontBold if config['firstDepartureBold'] else font
+    loop_row_gap = 12
+    loop_block_height = loop_row_gap * 2
+    loop_frame_interval = 0.02
+
+    board_index = select_record_board_index(
+        boards,
+        mode_elapsed_s if mode_elapsed_s is not None else time.monotonic(),
+        mode_entry_interval_s("adsb-records", config),
+    )
+    board = boards[board_index]
+    top_left_text = f"{board.title} records"
+    top_right_text = f"{board.observation_count} hits"
+    scroll_text = build_record_summary_text(board)
+    record_rows = board.records[:2]
+
+    rowOne = snapshot(
+        width,
+        10,
+        renderAdsbSummary(top_left_text, top_right_text, firstFont),
+        interval=loop_frame_interval,
+    )
+    rowTwo = snapshot(
+        width,
+        10,
+        renderStations(scroll_text, initial_pause_frames=50),
+        interval=loop_frame_interval,
+    )
+
+    def render_records_block() -> Callable[..., None]:
+        def drawText(draw: ImageDraw.ImageDraw, width: int, *_: Any) -> None:
+            if not record_rows:
+                text_width, _, bitmap = cachedBitmapText(
+                    "Collecting first records",
+                    font,
+                )
+                draw.bitmap(
+                    (max(0, (width - text_width) / 2), 0),
+                    bitmap,
+                    fill="yellow",
+                )
+                return
+            for idx, record in enumerate(record_rows):
+                y_offset = idx * loop_row_gap
+                left_text = format_record_line(record)
+                right_text = record.aircraft_type
+                _, _, left_bitmap = cachedBitmapText(left_text, font)
+                draw.bitmap((0, y_offset), left_bitmap, fill="yellow")
+                if not right_text:
+                    continue
+                right_width, _, right_bitmap = cachedBitmapText(right_text, font)
+                draw.bitmap(
+                    (max(0, width - right_width), y_offset),
+                    right_bitmap,
+                    fill="yellow",
+                )
+
+        return drawText
+
+    rowThree = snapshot(
+        width,
+        loop_block_height,
+        render_records_block(),
+        interval=loop_frame_interval,
+    )
+    rowTime = snapshot(
+        width,
+        14,
+        renderTimeWithModeLabel("REC"),
+        interval=0.1,
+    )
+
+    if len(virtualViewport._hotspots) > 0:
+        for vhotspot, xy in virtualViewport._hotspots:
+            virtualViewport.remove_hotspot(vhotspot, xy)
+
+    virtualViewport.add_hotspot(rowOne, (0, 0))
+    virtualViewport.add_hotspot(rowTwo, (0, 12))
+    virtualViewport.add_hotspot(rowThree, (0, 24))
+    virtualViewport.add_hotspot(rowTime, (0, 50))
+
+    return virtualViewport
+
+
 def renderTemplateSummary(
     left_text: str,
     right_text: str,
@@ -1330,7 +1460,7 @@ try:
         config["alerts"]["enabled"],
     )
     modeState = build_mode_state(transportModes, time.monotonic())
-    refreshExecutor = ThreadPoolExecutor(max_workers=3)
+    refreshExecutor = ThreadPoolExecutor(max_workers=4)
     displayCaches: dict[str, AsyncRefreshCache[Any]] = {
         "train": AsyncRefreshCache(
             lambda: loadData(config["api"], config["journey"], config),
@@ -1341,6 +1471,11 @@ try:
     if config["adsb"]["enabled"]:
         displayCaches["adsb"] = AsyncRefreshCache(
             lambda: loadAdsbData(config["adsb"]),
+            float(config["adsb"]["refreshTime"]),
+            refreshExecutor,
+        )
+        displayCaches["adsb-records"] = AsyncRefreshCache(
+            lambda: loadAdsbRecordsData(config["adsb"]),
             float(config["adsb"]["refreshTime"]),
             refreshExecutor,
         )
@@ -1356,7 +1491,10 @@ try:
         alertListener = MqttAlertListener(config["alerts"])
         alertListener.start()
 
-    for cache_mode in set(transportModes + [config["transport"]["fallbackMode"]]):
+    initial_refresh_modes = set(transportModes + [config["transport"]["fallbackMode"]])
+    if "adsb-records" in initial_refresh_modes:
+        initial_refresh_modes.add("adsb")
+    for cache_mode in initial_refresh_modes:
         if cache_mode in displayCaches:
             displayCaches[cache_mode].refresh_if_due(time.monotonic(), force=True)
 
@@ -1431,7 +1569,7 @@ try:
                         )
 
                 refreshInterval = config["refreshTime"]
-                if modeState.active_mode in {"adsb", "plane-alert"}:
+                if modeState.active_mode in {"adsb", "adsb-records", "plane-alert"}:
                     refreshInterval = mode_entry_interval_s(
                         modeState.active_mode,
                         config,
@@ -1443,6 +1581,8 @@ try:
                 ):
                     lastCacheRefreshCheck = now_monotonic
                     refresh_modes = {modeState.active_mode}
+                    if modeState.active_mode == "adsb-records":
+                        refresh_modes.add("adsb")
                     if (
                         modeState.active_mode != config["transport"]["fallbackMode"]
                         and modeState.active_mode != "train"
@@ -1549,6 +1689,69 @@ try:
                                     width=widgetWidth,
                                     height=widgetHeight,
                                     departureStation="ADS-B unavailable",
+                                )
+                    elif modeState.active_mode == "adsb-records":
+                        boards = displayCaches["adsb-records"].snapshot(
+                            now_monotonic,
+                        ).value
+                        if boards is None:
+                            virtual = drawBlankSignage(
+                                device,
+                                width=widgetWidth,
+                                height=widgetHeight,
+                                departureStation="Loading ADS-B records",
+                            )
+                            if config['dualScreen']:
+                                virtual1 = drawBlankSignage(
+                                    device1,
+                                    width=widgetWidth,
+                                    height=widgetHeight,
+                                    departureStation="Loading ADS-B records",
+                                )
+                        elif boards is not False:
+                            virtual = drawAdsbRecordsSignage(
+                                device,
+                                width=widgetWidth,
+                                height=widgetHeight,
+                                boards=boards,
+                                mode_elapsed_s=(
+                                    now_monotonic - modeState.last_switch
+                                ),
+                            )
+                            if config['dualScreen']:
+                                virtual1 = drawAdsbRecordsSignage(
+                                    device1,
+                                    width=widgetWidth,
+                                    height=widgetHeight,
+                                    boards=boards,
+                                    mode_elapsed_s=(
+                                        now_monotonic - modeState.last_switch
+                                    ),
+                                )
+                        elif config["transport"]["fallbackMode"] == "train":
+                            data = displayCaches["train"].snapshot(now_monotonic).value
+                            virtual, virtual1_candidate = draw_cached_train_signage(
+                                device,
+                                device1 if config['dualScreen'] else None,
+                                widgetWidth,
+                                widgetHeight,
+                                data,
+                            )
+                            if config['dualScreen']:
+                                virtual1 = virtual1_candidate
+                        else:
+                            virtual = drawBlankSignage(
+                                device,
+                                width=widgetWidth,
+                                height=widgetHeight,
+                                departureStation="ADS-B records unavailable",
+                            )
+                            if config['dualScreen']:
+                                virtual1 = drawBlankSignage(
+                                    device1,
+                                    width=widgetWidth,
+                                    height=widgetHeight,
+                                    departureStation="ADS-B records unavailable",
                                 )
                     elif modeState.active_mode == "plane-alert":
                         alerts = displayCaches["plane-alert"].snapshot(now_monotonic).value
