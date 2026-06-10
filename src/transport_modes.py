@@ -60,18 +60,64 @@ def build_mode_state(modes: Sequence[str], now: float) -> ModeState:
     return ModeState(active_mode=modes[0], last_switch=now)
 
 
+def mode_run_duration_s(
+    mode: str,
+    entry_count: int,
+    entry_interval_s: float,
+    mode_run_count: int,
+) -> float:
+    """Return the run-count based duration for a mode.
+
+    Args:
+        mode: Current transport mode name.
+        entry_count: Number of display entries/pages in one complete cycle.
+        entry_interval_s: Seconds each entry/page remains active.
+        mode_run_count: Number of full cycles before switching modes. Train mode
+            intentionally runs twice this value because its primary departure
+            remains fixed while the lower rows cycle.
+
+    Returns:
+        Seconds to keep the mode active before advancing.
+    """
+    safe_entries = max(1, entry_count)
+    safe_interval = max(1.0, entry_interval_s)
+    safe_run_count = max(1, mode_run_count)
+    if mode == "train":
+        safe_run_count *= 2
+    return safe_entries * safe_interval * safe_run_count
+
+
 def update_mode_state(
     state: ModeState,
     modes: Sequence[str],
     now: float,
     switch_interval_s: float,
+    *,
+    mode_run_count: int | None = None,
+    entry_count: int = 1,
+    entry_interval_s: float = 1.0,
 ) -> None:
-    """Switch to the next configured mode when the interval has elapsed."""
+    """Switch to the next configured mode when the active limit has elapsed.
+
+    ``mode_run_count`` overrides ``switch_interval_s`` when provided. In that
+    mode, each transport mode remains active until it has displayed every entry
+    ``mode_run_count`` times; train mode doubles that count.
+    """
     if len(modes) < 2:
         state.active_mode = modes[0] if modes else "train"
         state.last_switch = now
         return
-    if now - state.last_switch < switch_interval_s:
+
+    active_limit_s = switch_interval_s
+    if mode_run_count is not None:
+        active_limit_s = mode_run_duration_s(
+            state.active_mode,
+            entry_count,
+            entry_interval_s,
+            mode_run_count,
+        )
+
+    if now - state.last_switch < active_limit_s:
         return
 
     try:

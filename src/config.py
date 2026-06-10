@@ -61,11 +61,17 @@ def _env_optional_float(name: str) -> float | None:
     return float(value)
 
 
-def _env_optional_int(name: str) -> int | None:
+def _env_optional_int(
+    name: str,
+    minimum: int | None = None,
+) -> int | None:
     value = os.getenv(name)
     if value in (None, ""):
         return None
-    return int(value)
+    parsed = int(value)
+    if minimum is not None and parsed < minimum:
+        return minimum
+    return parsed
 
 # validate platform number
 def parsePlatformData(platform):
@@ -341,6 +347,10 @@ def loadConfig():
     data["transport"]["modeSwitchInterval"] = _env_int(
         "modeSwitchInterval",
         300,
+        minimum=1,
+    )
+    data["transport"]["modeRunCount"] = _env_optional_int(
+        "modeRunCount",
         minimum=1,
     )
     data["transport"]["fallbackMode"] = (

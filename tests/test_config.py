@@ -12,6 +12,7 @@ def test_adsb_config_defaults_to_disabled_train_only(monkeypatch):
         "adsbEnabled",
         "transportModes",
         "modeSwitchInterval",
+        "modeRunCount",
         "lastLineText",
         "adsbHomeLat",
         "adsbHomeLon",
@@ -52,6 +53,7 @@ def test_adsb_config_defaults_to_disabled_train_only(monkeypatch):
     assert config["adsb"]["enabled"] is False
     assert config["transport"]["modes"] == "train"
     assert config["transport"]["modeSwitchInterval"] == 300
+    assert config["transport"]["modeRunCount"] is None
     assert config["transport"]["lastLineText"] == "****Last Line****"
     assert config["adsb"]["homeLat"] is None
     assert config["adsb"]["homeLon"] is None
@@ -91,6 +93,7 @@ def test_adsb_config_parses_enabled_values(monkeypatch):
     monkeypatch.setenv("adsbEnabled", "True")
     monkeypatch.setenv("transportModes", "train,adsb")
     monkeypatch.setenv("modeSwitchInterval", "60")
+    monkeypatch.setenv("modeRunCount", "2")
     monkeypatch.setenv("lastLineText", "-- END --")
     monkeypatch.setenv("adsbHomeLat", "51.5")
     monkeypatch.setenv("adsbHomeLon", "-0.1")
@@ -134,6 +137,7 @@ def test_adsb_config_parses_enabled_values(monkeypatch):
     assert config["adsb"]["enabled"] is True
     assert config["transport"]["modes"] == "train,adsb"
     assert config["transport"]["modeSwitchInterval"] == 60
+    assert config["transport"]["modeRunCount"] == 2
     assert config["transport"]["lastLineText"] == "-- END --"
     assert config["adsb"]["homeLat"] == 51.5
     assert config["adsb"]["homeLon"] == -0.1
