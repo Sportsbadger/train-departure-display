@@ -1,21 +1,13 @@
 from __future__ import annotations
 
 import queue
-import threading
 import time
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
 
-import requests
-
-from plane_alert import (
-    PlaneAlert,
-    build_plane_alert_template_text,
-    fetch_plane_alert_json,
-    parse_plane_alerts,
-)
+from plane_alert import PlaneAlert, build_plane_alert_template_text
 
 
 @dataclass(frozen=True)
@@ -77,60 +69,59 @@ def build_alert_template_text(template: str, alert: DisplayAlert) -> str:
 
 
 class PlaneAlertListAlertListener:
-    """Poll Plane-Alert history and alert when a new row appears."""
+    """Detect new rows from observed Plane-Alert datasource snapshots."""
 
-    def __init__(
-        self,
-        alert_config: Mapping[str, Any],
-        plane_alert_config: Mapping[str, Any],
-        load_alerts: Callable[[], Sequence[PlaneAlert]] | None = None,
-    ) -> None:
-        """Create a listener using Plane-Alert datasource configuration.
+    def __init__(self, alert_config: Mapping[str, Any]) -> None:
+        """Create a listener using alert display configuration.
 
         Args:
             alert_config: The ``config["alerts"]`` mapping.
-            plane_alert_config: The ``config["planeAlert"]`` mapping.
-            load_alerts: Optional loader for tests. When omitted, the listener
-                fetches and parses the configured Plane-Alert source URL.
         """
         self._alert_config = alert_config
-        self._plane_alert_config = plane_alert_config
-        self._load_alerts = load_alerts or self._load_plane_alert_rows
         self._events: queue.Queue[DisplayAlert] = queue.Queue(maxsize=10)
         self._seen_identities: set[str] = set()
         self._primed = False
+        self._last_observed_signature: str | None = None
         self._active_alert: DisplayAlert | None = None
         self._active_until = 0.0
-        self._stop_event = threading.Event()
-        self._thread: threading.Thread | None = None
 
     def start(self) -> None:
-        """Start polling Plane-Alert history in a background thread."""
-        if self._thread is not None and self._thread.is_alive():
-            return
+        """Start the listener.
 
-        self._stop_event.clear()
-        self._thread = threading.Thread(
-            target=self._poll_loop,
-            name="plane-alert-list-alerts",
-            daemon=True,
-        )
-        self._thread.start()
+        The listener is intentionally passive: the main loop feeds it completed
+        Plane-Alert cache snapshots so alerting adds no network thread or
+        duplicate parser workload.
+        """
 
     def stop(self) -> None:
-        """Stop the polling thread without blocking display shutdown."""
-        self._stop_event.set()
-        if self._thread is None:
+        """Stop the listener.
+
+        The passive listener owns no background resources.
+        """
+
+    def observe(
+        self,
+        rows: Sequence[PlaneAlert] | None,
+        source: str,
+        received_at: datetime | None = None,
+    ) -> None:
+        """Observe a completed Plane-Alert list and queue newly added rows.
+
+        Args:
+            rows: Newest-first Plane-Alert rows from the shared datasource cache.
+            source: Source URL or label for alert templates.
+            received_at: Optional receipt time for deterministic tests.
+        """
+        if rows is None:
             return
-        self._thread.join(timeout=2.0)
-        self._thread = None
 
-    def poll_once(self) -> None:
-        """Poll the Plane-Alert datasource once and queue any newly added row."""
-        rows = list(self._load_alerts())
         identities = [plane_alert_identity(row) for row in rows]
-        current_identities = set(identities)
+        signature = "\n".join(identities)
+        if signature == self._last_observed_signature:
+            return
 
+        self._last_observed_signature = signature
+        current_identities = set(identities)
         if not self._primed:
             self._seen_identities = current_identities
             self._primed = True
@@ -145,13 +136,13 @@ class PlaneAlertListAlertListener:
         if not new_rows:
             return
 
-        newest_new_row = new_rows[0]
         _put_drop_oldest(
             self._events,
             DisplayAlert(
-                source=str(self._plane_alert_config["sourceUrl"]),
-                received_at=datetime.now(timezone.utc).replace(tzinfo=None),
-                plane_alert=newest_new_row,
+                source=source,
+                received_at=received_at
+                or datetime.now(timezone.utc).replace(tzinfo=None),
+                plane_alert=new_rows[0],
             ),
         )
 
@@ -172,27 +163,6 @@ class PlaneAlertListAlertListener:
             return self._active_alert
         self._active_alert = None
         return None
-
-    def _poll_loop(self) -> None:
-        poll_interval = float(self._alert_config["pollInterval"])
-        while not self._stop_event.is_set():
-            try:
-                self.poll_once()
-            except (OSError, ValueError, requests.RequestException) as err:
-                print(f"Warning: Failed to poll Plane-Alert alerts: {err}")
-            self._stop_event.wait(poll_interval)
-
-    def _load_plane_alert_rows(self) -> list[PlaneAlert]:
-        payload = fetch_plane_alert_json(
-            str(self._plane_alert_config["sourceUrl"]),
-            float(self._plane_alert_config["fetchTimeout"]),
-            str(self._plane_alert_config["userAgent"]),
-        )
-        return parse_plane_alerts(
-            payload,
-            self._plane_alert_config["maxAgeHours"],
-            int(self._plane_alert_config["displayCount"]),
-        )
 
     def _promote_latest_event(self, now: float) -> None:
         latest: DisplayAlert | None = None

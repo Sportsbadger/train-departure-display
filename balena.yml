@@ -88,7 +88,7 @@ data:
     - planeAlertSourceUrl: http://192.168.1.74:8083/cgi/stream.sh?mode=plane-alert&date=all
     - planeAlertRefreshTime: 30
     - planeAlertDisplayCount: 30
-    - alertsPollInterval: 5
+    - alertsPollInterval: 60
     - alertsDisplayDuration: 20
 version: 0.6.2
 

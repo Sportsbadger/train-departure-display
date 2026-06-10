@@ -81,7 +81,7 @@ def test_adsb_config_defaults_to_disabled_train_only(monkeypatch):
     assert config["planeAlert"]["nextLeftTemplate"] == "{loop_alert}"
     assert config["planeAlert"]["nextRightTemplate"] == "{loop_info}"
     assert config["alerts"]["enabled"] is False
-    assert config["alerts"]["pollInterval"] == 5.0
+    assert config["alerts"]["pollInterval"] == 60.0
     assert config["alerts"]["displayDuration"] == 20.0
     assert config["alerts"]["titleTemplate"] == "{title}"
     assert config["alerts"]["topTemplate"] == "{headline}"
@@ -163,7 +163,7 @@ def test_adsb_config_parses_enabled_values(monkeypatch):
     )
     assert config["planeAlert"]["nextRightTemplate"] == "{equipment} {time}"
     assert config["alerts"]["enabled"] is True
-    assert config["alerts"]["pollInterval"] == 1.0
+    assert config["alerts"]["pollInterval"] == 30.0
     assert config["alerts"]["displayDuration"] == 1.0
     assert config["alerts"]["titleTemplate"] == "ALERT"
     assert config["alerts"]["topTemplate"] == "{display_name}"

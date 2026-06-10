@@ -121,13 +121,13 @@ planeAlertNextRightTemplate={equipment} {time}
 
 ## Plane-Alert new-row alerts overlay (optional)
 
-The `alerts` feature is separate from the Plane-Alert history board. It polls the same configured Plane-Alert datasource in a background thread, primes itself with the current table, and interrupts whatever mode is visible only when a new row is added after startup. It does not consume a normal mode-rotation slot; include `alerts` in `transportModes` for readability alongside `train,adsb,plane-alert,alerts`.
+The `alerts` feature is separate from the Plane-Alert history board. It reuses the shared Plane-Alert datasource cache and only asks for idle background refreshes, primes itself with the current table, and interrupts whatever mode is visible only when a new row is added after startup. It does not consume a normal mode-rotation slot; include `alerts` in `transportModes` for readability alongside `train,adsb,plane-alert,alerts`.
 
 | Key | Example Value
 |-----|----------
 | `alertsEnabled` | `True` (enables the interrupting Plane-Alert new-row overlay)
 | `transportModes` | `train,adsb,plane-alert,alerts` (`alerts` is accepted as an interrupt-only feature and is not rotated like train/ADS-B/Plane-Alert boards)
-| `alertsPollInterval` | `5` (seconds between checks of `planeAlertSourceUrl`, clamped to at least `1`)
+| `alertsPollInterval` | `60` (minimum seconds between idle checks of `planeAlertSourceUrl`, clamped to at least `30`)
 | `alertsDisplayDuration` | `20` (seconds each new-row alert remains full-screen unless replaced by a newer row)
 | `alertsTitleTemplate` | `{title}` (top full-screen alert row)
 | `alertsTopTemplate` | `{headline}` (second alert row)
@@ -141,7 +141,7 @@ Example alert overlay configuration:
 ```bash
 alertsEnabled=True
 transportModes=train,adsb,plane-alert,alerts
-alertsPollInterval=5
+alertsPollInterval=60
 alertsDisplayDuration=25
 alertsTitleTemplate={title}
 alertsTopTemplate={display_name} {tail_or_hex} {time}

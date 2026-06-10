@@ -210,6 +210,35 @@ def mode_entry_count(
     return max(1, (visible_loop_departures + 1) // 2)
 
 
+def should_refresh_alert_datasource(
+    display_caches: dict[str, AsyncRefreshCache[Any]],
+    now: float,
+    last_attempt: float,
+    poll_interval_s: float,
+) -> bool:
+    """Return whether the Plane-Alert alert datasource can refresh now.
+
+    Args:
+        display_caches: Shared async display caches.
+        now: Current monotonic timestamp.
+        last_attempt: Previous alert datasource refresh attempt timestamp.
+        poll_interval_s: Minimum seconds between alert datasource checks.
+
+    Returns:
+        ``True`` only when the poll interval has elapsed and no shared cache is
+        currently refreshing. This keeps alert polling opportunistic instead of
+        competing with train, ADS-B, statistics, or active Plane-Alert refreshes.
+    """
+    if now - last_attempt < poll_interval_s:
+        return False
+    if "plane-alert" not in display_caches:
+        return False
+    return all(
+        not cache.snapshot(now).is_refreshing
+        for cache in display_caches.values()
+    )
+
+
 def renderStations(stations, initial_pause_frames=20):
     pixels_left = 1
     pixels_up = 0
@@ -376,8 +405,21 @@ def loadData(apiConfig, journeyConfig, config):
 
 
 
-def loadPlaneAlertData(planeAlertConfig: dict[str, Any]):
-    if not planeAlertConfig["enabled"]:
+def loadPlaneAlertData(
+    planeAlertConfig: dict[str, Any],
+    force_enabled: bool = False,
+) -> list[Any] | bool:
+    """Load Plane-Alert rows from the configured datasource.
+
+    Args:
+        planeAlertConfig: The ``config["planeAlert"]`` mapping.
+        force_enabled: Fetch even when the Plane-Alert display board is not in
+            the rotation. This is used by alert-only configurations.
+
+    Returns:
+        Parsed Plane-Alert rows, ``False`` when disabled/unavailable.
+    """
+    if not force_enabled and not planeAlertConfig["enabled"]:
         return False
 
     try:
@@ -1488,19 +1530,19 @@ try:
             float(config["adsb"]["refreshTime"]),
             refreshExecutor,
         )
-    if config["planeAlert"]["enabled"]:
+    if config["planeAlert"]["enabled"] or config["alerts"]["enabled"]:
         displayCaches["plane-alert"] = AsyncRefreshCache(
-            lambda: loadPlaneAlertData(config["planeAlert"]),
+            lambda: loadPlaneAlertData(
+                config["planeAlert"],
+                force_enabled=config["alerts"]["enabled"],
+            ),
             float(config["planeAlert"]["refreshTime"]),
             refreshExecutor,
         )
 
     alertListener = None
     if config["alerts"]["enabled"]:
-        alertListener = PlaneAlertListAlertListener(
-            config["alerts"],
-            config["planeAlert"],
-        )
+        alertListener = PlaneAlertListAlertListener(config["alerts"])
         alertListener.start()
 
     initial_refresh_modes = set(transportModes + [config["transport"]["fallbackMode"]])
@@ -1533,6 +1575,7 @@ try:
     timeFPS = time.time()
     activeAlertKey = ""
     lastCacheRefreshCheck = 0.0
+    lastAlertDatasourceRefresh = time.monotonic()
 
     blankHours = []
     if config['hoursPattern'].match(config['screenBlankHours']):
@@ -1603,6 +1646,27 @@ try:
                     for cache_mode in refresh_modes:
                         if cache_mode in displayCaches:
                             displayCaches[cache_mode].refresh_if_due(now_monotonic)
+
+                if alertListener is not None and "plane-alert" in displayCaches:
+                    plane_alert_snapshot = displayCaches["plane-alert"].snapshot(
+                        now_monotonic,
+                    )
+                    if isinstance(plane_alert_snapshot.value, list):
+                        alertListener.observe(
+                            plane_alert_snapshot.value,
+                            source=str(config["planeAlert"]["sourceUrl"]),
+                        )
+                    if should_refresh_alert_datasource(
+                        displayCaches,
+                        now_monotonic,
+                        lastAlertDatasourceRefresh,
+                        float(config["alerts"]["pollInterval"]),
+                    ):
+                        displayCaches["plane-alert"].refresh_if_due(
+                            now_monotonic,
+                            force=True,
+                        )
+                        lastAlertDatasourceRefresh = now_monotonic
 
                 activeAlert = None
                 if alertListener is not None:

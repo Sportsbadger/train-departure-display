@@ -38,39 +38,32 @@ def test_plane_alert_identity_prefers_live_stream_index() -> None:
 
 
 def test_plane_alert_list_listener_primes_without_alerting() -> None:
-    snapshots = [[make_alert("AE0001", 1)]]
     listener = PlaneAlertListAlertListener(
-        {"displayDuration": 5.0, "pollInterval": 1.0},
-        {"sourceUrl": "http://example.test/cgi/stream.sh"},
-        load_alerts=lambda: snapshots[-1],
+        {"displayDuration": 5.0, "pollInterval": 60.0},
     )
 
-    listener.poll_once()
+    listener.observe(
+        [make_alert("AE0001", 1)],
+        source="http://example.test/cgi/stream.sh",
+    )
 
     assert listener.current_alert(now=10.0) is None
 
 
-def test_plane_alert_list_listener_alerts_when_new_row_is_added() -> None:
-    snapshots = [
-        [make_alert("AE0001", 1)],
-        [make_alert("AE0002", 2), make_alert("AE0001", 1)],
-    ]
-    calls = 0
-
-    def load_alerts() -> list[PlaneAlert]:
-        nonlocal calls
-        value = snapshots[calls]
-        calls += 1
-        return value
-
+def test_plane_alert_list_listener_alerts_when_new_row_is_observed() -> None:
     listener = PlaneAlertListAlertListener(
-        {"displayDuration": 5.0, "pollInterval": 1.0},
-        {"sourceUrl": "http://example.test/cgi/stream.sh"},
-        load_alerts=load_alerts,
+        {"displayDuration": 5.0, "pollInterval": 60.0},
     )
 
-    listener.poll_once()
-    listener.poll_once()
+    listener.observe(
+        [make_alert("AE0001", 1)],
+        source="http://example.test/cgi/stream.sh",
+    )
+    listener.observe(
+        [make_alert("AE0002", 2), make_alert("AE0001", 1)],
+        source="http://example.test/cgi/stream.sh",
+        received_at=datetime(2026, 6, 6, 11, 31, 0),
+    )
     active = listener.current_alert(now=10.0)
 
     assert active is not None
@@ -84,33 +77,56 @@ def test_plane_alert_list_listener_alerts_when_new_row_is_added() -> None:
 
 
 def test_plane_alert_list_listener_promotes_latest_added_row() -> None:
-    snapshots = [
+    listener = PlaneAlertListAlertListener(
+        {"displayDuration": 5.0, "pollInterval": 60.0},
+    )
+
+    listener.observe(
         [make_alert("AE0001", 1)],
+        source="http://example.test/cgi/stream.sh",
+    )
+    listener.observe(
         [make_alert("AE0002", 2), make_alert("AE0001", 1)],
+        source="http://example.test/cgi/stream.sh",
+    )
+    listener.observe(
         [
             make_alert("AE0003", 3),
             make_alert("AE0002", 2),
             make_alert("AE0001", 1),
         ],
-    ]
-    calls = 0
-
-    def load_alerts() -> list[PlaneAlert]:
-        nonlocal calls
-        value = snapshots[calls]
-        calls += 1
-        return value
-
-    listener = PlaneAlertListAlertListener(
-        {"displayDuration": 5.0, "pollInterval": 1.0},
-        {"sourceUrl": "http://example.test/cgi/stream.sh"},
-        load_alerts=load_alerts,
+        source="http://example.test/cgi/stream.sh",
     )
-
-    listener.poll_once()
-    listener.poll_once()
-    listener.poll_once()
     active = listener.current_alert(now=10.0)
 
     assert active is not None
     assert active.plane_alert.hex == "AE0003"
+
+
+def test_plane_alert_list_listener_ignores_repeated_snapshot() -> None:
+    listener = PlaneAlertListAlertListener(
+        {"displayDuration": 5.0, "pollInterval": 60.0},
+    )
+    snapshot = [make_alert("AE0001", 1)]
+
+    listener.observe(snapshot, source="http://example.test/cgi/stream.sh")
+    listener.observe(snapshot, source="http://example.test/cgi/stream.sh")
+
+    assert listener.current_alert(now=10.0) is None
+
+
+
+def test_plane_alert_list_listener_alerts_after_empty_prime() -> None:
+    listener = PlaneAlertListAlertListener(
+        {"displayDuration": 5.0, "pollInterval": 60.0},
+    )
+
+    listener.observe([], source="http://example.test/cgi/stream.sh")
+    listener.observe(
+        [make_alert("AE0001", 1)],
+        source="http://example.test/cgi/stream.sh",
+    )
+    active = listener.current_alert(now=10.0)
+
+    assert active is not None
+    assert active.plane_alert.hex == "AE0001"

@@ -313,8 +313,8 @@ def loadConfig():
     data["alerts"]["enabled"] = _env_bool("alertsEnabled", False)
     data["alerts"]["pollInterval"] = _env_float(
         "alertsPollInterval",
-        5.0,
-        minimum=1.0,
+        60.0,
+        minimum=30.0,
     )
     data["alerts"]["displayDuration"] = _env_float(
         "alertsDisplayDuration",
