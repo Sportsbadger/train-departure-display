@@ -40,7 +40,7 @@ ADS-B support is disabled by default. When enabled, the display can alternate be
 | Key | Example Value
 |-----|----------
 | `adsbEnabled` | `True` (enables ADS-B mode as an available transport mode)
-| `transportModes` | `train,adsb` (ordered comma-separated modes to display; use `adsb` for ADS-B only; defaults to `train`)
+| `transportModes` | `train,adsb` (ordered comma-separated modes to display; use `adsb` for ADS-B only; when unset, enabled optional boards are appended after `train`)
 | `modeSwitchInterval` | `300` (seconds before switching to the next configured mode)
 | `transportFallbackMode` | `train` (fallback shown if ADS-B fetch/parsing fails; set to anything else to show an ADS-B unavailable screen instead)
 | `adsbSourceUrl` | `http://192.168.1.74/readsb/data/aircraft.json` (readsb/tar1090 JSON endpoint)
@@ -84,7 +84,7 @@ Plane-Alert support is disabled by default. When enabled, the display can altern
 | Key | Example Value
 |-----|----------
 | `planeAlertEnabled` | `True` (enables Plane-Alert mode as an available transport mode)
-| `transportModes` | `train,adsb,plane-alert` (ordered comma-separated modes to display; `planealert` is also accepted; defaults to `train`)
+| `transportModes` | `train,adsb,plane-alert` (ordered comma-separated modes to display; `planealert` is also accepted; when unset, enabled ADS-B/Plane-Alert boards are appended after `train`)
 | `modeSwitchInterval` | `300` (seconds before switching to the next configured mode)
 | `transportFallbackMode` | `train` (fallback shown if Plane-Alert fetch/parsing fails; set to anything else to show a Plane-Alert unavailable screen instead)
 | `planeAlertSourceUrl` | `http://192.168.1.74:8083/cgi/stream.sh?mode=plane-alert&date=all` (live Plane-Alert stream used by the web UI; legacy `pa_query.php` URLs are upgraded automatically)

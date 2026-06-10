@@ -76,6 +76,19 @@ def parsePlatformData(platform):
     else:
         return ""
 
+
+def _default_transport_modes(
+    adsb_enabled: bool,
+    plane_alert_enabled: bool,
+) -> str:
+    modes = ["train"]
+    if adsb_enabled:
+        modes.append("adsb")
+    if plane_alert_enabled:
+        modes.append("plane-alert")
+    return ",".join(modes)
+
+
 def loadConfig():
     data = {
         "journey": {},
@@ -288,7 +301,12 @@ def loadConfig():
         os.getenv("alertsBottomTemplate") or DEFAULT_ALERT_BOTTOM_TEMPLATE
     )
 
-    data["transport"]["modes"] = os.getenv("transportModes") or "train"
+    data["transport"]["modes"] = os.getenv(
+        "transportModes",
+    ) or _default_transport_modes(
+        data["adsb"]["enabled"],
+        data["planeAlert"]["enabled"],
+    )
     data["transport"]["lastLineText"] = (
         os.getenv("lastLineText") or DEFAULT_LAST_LINE_TEXT
     )

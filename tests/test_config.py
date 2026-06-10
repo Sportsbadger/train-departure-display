@@ -177,3 +177,23 @@ def test_plane_alert_display_count_caps_at_latest_30(monkeypatch):
     config = loadConfig()
 
     assert config["planeAlert"]["displayCount"] == 30
+
+
+def test_transport_modes_default_to_enabled_optional_boards(monkeypatch):
+    monkeypatch.delenv("transportModes", raising=False)
+    monkeypatch.setenv("adsbEnabled", "True")
+    monkeypatch.setenv("planeAlertEnabled", "True")
+
+    config = loadConfig()
+
+    assert config["transport"]["modes"] == "train,adsb,plane-alert"
+
+
+def test_transport_modes_default_to_plane_alert_when_enabled(monkeypatch):
+    monkeypatch.delenv("transportModes", raising=False)
+    monkeypatch.delenv("adsbEnabled", raising=False)
+    monkeypatch.setenv("planeAlertEnabled", "True")
+
+    config = loadConfig()
+
+    assert config["transport"]["modes"] == "train,plane-alert"
