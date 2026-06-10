@@ -4,6 +4,7 @@ import re
 from adsb_records import normalize_record_windows
 
 
+DEFAULT_ADSB_RECORDS_STORE_PATH = "/data/adsb-records.json"
 DEFAULT_ADSB_TOP_LEFT_TEMPLATE = "{summary_left}"
 DEFAULT_ADSB_TOP_RIGHT_TEMPLATE = "{summary_right}"
 DEFAULT_ADSB_SCROLL_TEMPLATE = "{detail}"
@@ -244,7 +245,7 @@ def loadConfig():
         os.getenv("adsbNextRightTemplate") or DEFAULT_ADSB_NEXT_RIGHT_TEMPLATE
     )
     data["adsb"]["recordsStorePath"] = (
-        os.getenv("adsbRecordsStorePath") or "data/adsb-records.json"
+        os.getenv("adsbRecordsStorePath") or DEFAULT_ADSB_RECORDS_STORE_PATH
     )
     data["adsb"]["recordsWindows"] = normalize_record_windows(
         os.getenv("adsbRecordsWindows"),

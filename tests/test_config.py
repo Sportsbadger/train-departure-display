@@ -26,6 +26,8 @@ def test_adsb_config_defaults_to_disabled_train_only(monkeypatch):
         "adsbScrollTemplate",
         "adsbNextLeftTemplate",
         "adsbNextRightTemplate",
+        "adsbRecordsStorePath",
+        "adsbRecordsWindows",
         "planeAlertEnabled",
         "planeAlertSourceUrl",
         "planeAlertFetchTimeout",
@@ -68,6 +70,8 @@ def test_adsb_config_defaults_to_disabled_train_only(monkeypatch):
     assert config["adsb"]["scrollTemplate"] == "{detail}"
     assert config["adsb"]["nextLeftTemplate"] == "{loop_aircraft}"
     assert config["adsb"]["nextRightTemplate"] == "{loop_info}"
+    assert config["adsb"]["recordsStorePath"] == "/data/adsb-records.json"
+    assert config["adsb"]["recordsWindows"] == ["day", "week", "forever"]
     assert config["planeAlert"]["enabled"] is False
     assert ":8083/cgi/stream.sh" in config["planeAlert"]["sourceUrl"]
     assert "mode=plane-alert" in config["planeAlert"]["sourceUrl"]
