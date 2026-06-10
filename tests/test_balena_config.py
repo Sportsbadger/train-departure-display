@@ -18,3 +18,10 @@ def test_balena_default_rotation_includes_plane_alert_when_enabled():
 
     assert "planeAlertEnabled: True" in text
     assert "transportModes: train,plane-alert" in text
+
+
+def test_balena_adsb_records_default_uses_persistent_data_path():
+    text = BALENA_YML.read_text(encoding="utf-8")
+
+    assert "adsbRecordsStorePath: /data/adsb-records.json" in text
+    assert "adsbRecordsWindows: 24hr,7 day,All Time" in text

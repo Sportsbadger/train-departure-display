@@ -77,6 +77,8 @@ data:
     - fpsTime: 10
     - debug: False
     - adsbEnabled: False
+    - adsbRecordsStorePath: /data/adsb-records.json
+    - adsbRecordsWindows: 24hr,7 day,All Time
     - planeAlertEnabled: True
     - alertsEnabled: False
     - transportModes: train,plane-alert

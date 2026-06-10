@@ -92,3 +92,11 @@ def test_update_mode_state_mode_run_count_overrides_interval():
     )
     assert state.active_mode == "adsb"
     assert state.last_switch == 60.0
+
+
+def test_parse_modes_accepts_adsb_records_aliases():
+    assert parse_modes(
+        "train,adsb-stats,records,adsb-records",
+        adsb_enabled=True,
+    ) == ["train", "adsb-records"]
+    assert parse_modes("adsb-records", adsb_enabled=False) == ["train"]

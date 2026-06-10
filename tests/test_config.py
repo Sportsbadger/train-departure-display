@@ -26,6 +26,8 @@ def test_adsb_config_defaults_to_disabled_train_only(monkeypatch):
         "adsbScrollTemplate",
         "adsbNextLeftTemplate",
         "adsbNextRightTemplate",
+        "adsbRecordsStorePath",
+        "adsbRecordsWindows",
         "planeAlertEnabled",
         "planeAlertSourceUrl",
         "planeAlertFetchTimeout",
@@ -68,6 +70,8 @@ def test_adsb_config_defaults_to_disabled_train_only(monkeypatch):
     assert config["adsb"]["scrollTemplate"] == "{detail}"
     assert config["adsb"]["nextLeftTemplate"] == "{loop_aircraft}"
     assert config["adsb"]["nextRightTemplate"] == "{loop_info}"
+    assert config["adsb"]["recordsStorePath"] == "/data/adsb-records.json"
+    assert config["adsb"]["recordsWindows"] == ["day", "week", "forever"]
     assert config["planeAlert"]["enabled"] is False
     assert ":8083/cgi/stream.sh" in config["planeAlert"]["sourceUrl"]
     assert "mode=plane-alert" in config["planeAlert"]["sourceUrl"]
@@ -235,3 +239,16 @@ def test_transport_modes_adsb_entry_enables_adsb(monkeypatch):
 
     assert config["adsb"]["enabled"] is True
     assert config["transport"]["modes"] == "train,adsb"
+
+
+def test_adsb_records_mode_enables_adsb_and_store_path(monkeypatch):
+    monkeypatch.setenv("transportModes", "train,adsb-records")
+    monkeypatch.setenv("adsbRecordsStorePath", "/tmp/display-records.json")
+    monkeypatch.setenv("adsbRecordsWindows", "24hr,All Time")
+
+    config = loadConfig()
+
+    assert config["adsb"]["enabled"] is True
+    assert config["transport"]["modes"] == "train,adsb-records"
+    assert config["adsb"]["recordsStorePath"] == "/tmp/display-records.json"
+    assert config["adsb"]["recordsWindows"] == ["day", "forever"]

@@ -8,7 +8,7 @@
 - **3D-printable cases**: Print your own miniature case to keep everything tidy - both desktop and 'hanging' style available.
 - **Dual display support**: Run two displays each showing departures from different platforms from a single Raspberry Pi.
 - **Scrolls next X trains**: Loops through a user-defined number of next trains
-- **Optional aircraft modes**: Alternates with readsb/tar1090 ADS-B aircraft and docker-planefence Plane-Alert boards when configured
+- **Optional aircraft modes**: Alternates with readsb/tar1090 ADS-B aircraft, persistent ADS-B record boards, and docker-planefence Plane-Alert boards when configured
 
 ![](assets/blog-header.jpg)
 ![](docs/images/completed-unit.jpg)
