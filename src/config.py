@@ -1,6 +1,8 @@
 import os
 import re
 
+from adsb_records import normalize_record_windows
+
 
 DEFAULT_ADSB_TOP_LEFT_TEMPLATE = "{summary_left}"
 DEFAULT_ADSB_TOP_RIGHT_TEMPLATE = "{summary_right}"
@@ -243,6 +245,9 @@ def loadConfig():
     )
     data["adsb"]["recordsStorePath"] = (
         os.getenv("adsbRecordsStorePath") or "data/adsb-records.json"
+    )
+    data["adsb"]["recordsWindows"] = normalize_record_windows(
+        os.getenv("adsbRecordsWindows"),
     )
 
     data["planeAlert"]["enabled"] = _env_bool(

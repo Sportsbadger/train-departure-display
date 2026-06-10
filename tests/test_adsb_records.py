@@ -9,7 +9,9 @@ from adsb_records import (  # noqa: E402
     AdsbRecordBoard,
     AdsbMetricRecord,
     build_record_summary_text,
+    filter_record_boards,
     load_adsb_record_boards,
+    normalize_record_windows,
     record_mode_entry_count,
     select_record_display_page,
     update_adsb_record_store,
@@ -45,7 +47,7 @@ def aircraft(
     )
 
 
-def test_update_adsb_record_store_builds_rolling_and_forever_records(tmp_path):
+def test_update_adsb_record_store_builds_rolling_and_all_time_records(tmp_path):
     store_path = tmp_path / "adsb-records.json"
 
     boards = update_adsb_record_store(
@@ -59,6 +61,7 @@ def test_update_adsb_record_store_builds_rolling_and_forever_records(tmp_path):
 
     day = boards[0]
     assert day.window == "day"
+    assert day.title == "Last 24 Hours"
     assert day.observation_count == 2
     assert day.records[0].metric == "highest"
     assert day.records[0].aircraft_label == "HIGH1"
@@ -73,10 +76,11 @@ def test_update_adsb_record_store_builds_rolling_and_forever_records(tmp_path):
     )
 
     reloaded = load_adsb_record_boards(store_path, now=1_000_000.0)
-    forever = reloaded[2]
-    assert forever.window == "forever"
-    assert forever.records[0].aircraft_label == "OLDER"
-    assert forever.records[4].aircraft_label == "OLDER"
+    all_time = reloaded[2]
+    assert all_time.window == "forever"
+    assert all_time.title == "All Time"
+    assert all_time.records[0].aircraft_label == "OLDER"
+    assert all_time.records[4].aircraft_label == "OLDER"
 
 
 def metric_record(metric: str, value: float) -> AdsbMetricRecord:
@@ -95,7 +99,7 @@ def test_select_record_display_page_keeps_metrics_across_cycles():
     boards = [
         AdsbRecordBoard(
             window="day",
-            title="Last 24h",
+            title="Last 24 Hours",
             observation_count=4,
             records=[
                 metric_record("highest", 40_000),
@@ -144,3 +148,28 @@ def test_select_record_display_page_keeps_metrics_across_cycles():
     assert [record.metric for record in third_rows] == ["furthest"]
     assert week_board is boards[1]
     assert [record.metric for record in week_rows] == ["nearest"]
+
+
+def test_normalize_record_windows_accepts_requested_totals():
+    assert normalize_record_windows("24hr,7 day,All Time") == [
+        "day",
+        "week",
+        "forever",
+    ]
+    assert normalize_record_windows("all-time,24 hours,all") == [
+        "forever",
+        "day",
+    ]
+    assert normalize_record_windows("unknown") == ["day", "week", "forever"]
+
+
+def test_filter_record_boards_uses_configured_windows():
+    boards = [
+        AdsbRecordBoard("day", "Last 24 Hours", 0, []),
+        AdsbRecordBoard("week", "Last 7 Days", 0, []),
+        AdsbRecordBoard("forever", "All Time", 0, []),
+    ]
+
+    filtered = filter_record_boards(boards, ["day", "forever"])
+
+    assert [board.window for board in filtered] == ["day", "forever"]

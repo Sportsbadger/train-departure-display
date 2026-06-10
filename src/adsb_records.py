@@ -4,7 +4,7 @@ import json
 import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any, Iterable, Literal, Mapping
+from typing import Any, Iterable, Literal, Mapping, Sequence
 
 from adsb import AdsbAircraft, format_altitude, format_speed
 
@@ -14,6 +14,7 @@ MetricDirection = Literal["max", "min"]
 DAY_SECONDS = 24 * 60 * 60
 WEEK_SECONDS = 7 * DAY_SECONDS
 CURRENT_STORE_VERSION = 1
+DEFAULT_RECORD_WINDOWS: tuple[RecordWindow, ...] = ("day", "week", "forever")
 
 
 @dataclass(frozen=True)
@@ -92,10 +93,76 @@ METRIC_DEFINITIONS: tuple[MetricDefinition, ...] = (
 )
 
 WINDOW_TITLES: dict[RecordWindow, str] = {
-    "day": "Last 24h",
-    "week": "Last 7d",
-    "forever": "Forever",
+    "day": "Last 24 Hours",
+    "week": "Last 7 Days",
+    "forever": "All Time",
 }
+
+WINDOW_ALIASES: dict[str, RecordWindow] = {
+    "24h": "day",
+    "24hr": "day",
+    "24hrs": "day",
+    "24hour": "day",
+    "24hours": "day",
+    "day": "day",
+    "daily": "day",
+    "last24h": "day",
+    "last24hr": "day",
+    "last24hours": "day",
+    "7d": "week",
+    "7day": "week",
+    "7days": "week",
+    "week": "week",
+    "weekly": "week",
+    "last7d": "week",
+    "last7days": "week",
+    "all": "forever",
+    "alltime": "forever",
+    "forever": "forever",
+}
+
+
+
+
+def normalize_record_windows(
+    raw_windows: str | Iterable[str] | None,
+) -> list[RecordWindow]:
+    """Normalize configured ADS-B record windows for display.
+
+    Args:
+        raw_windows: Comma-separated string or iterable of window names.
+
+    Returns:
+        Ordered, de-duplicated record windows. Invalid values are ignored, and
+        all windows are returned when no valid value is configured.
+    """
+    if raw_windows is None:
+        return list(DEFAULT_RECORD_WINDOWS)
+
+    if isinstance(raw_windows, str):
+        raw_values = raw_windows.split(",")
+    else:
+        raw_values = raw_windows
+
+    windows: list[RecordWindow] = []
+    for raw_value in raw_values:
+        normalized = _normalize_window_token(str(raw_value))
+        if normalized is None or normalized in windows:
+            continue
+        windows.append(normalized)
+
+    if windows:
+        return windows
+    return list(DEFAULT_RECORD_WINDOWS)
+
+
+def filter_record_boards(
+    boards: Sequence[AdsbRecordBoard],
+    windows: Sequence[RecordWindow],
+) -> list[AdsbRecordBoard]:
+    """Filter record boards to configured display windows."""
+    allowed = set(windows)
+    return [board for board in boards if board.window in allowed]
 
 
 class AdsbRecordStoreError(ValueError):
@@ -336,6 +403,17 @@ def format_record_value(record: AdsbMetricRecord) -> str:
     if record.metric == "descent":
         return f"-{abs(int(record.value))}fpm"
     return f"{int(record.value)}fpm"
+
+
+def _normalize_window_token(raw_value: str) -> RecordWindow | None:
+    normalized = "".join(
+        character
+        for character in raw_value.strip().lower()
+        if character.isalnum()
+    )
+    if not normalized:
+        return None
+    return WINDOW_ALIASES.get(normalized)
 
 
 def _build_rolling_board(

@@ -29,6 +29,7 @@ from adsb_records import (
     AdsbRecordBoard,
     AdsbRecordStoreError,
     build_record_summary_text,
+    filter_record_boards,
     format_record_line,
     load_adsb_record_boards,
     record_mode_entry_count,
@@ -174,7 +175,7 @@ PLANE_ENTRY_SCROLL_MULTIPLIER = 2.0
 
 def mode_entry_interval_s(mode: str, app_config: dict[str, Any]) -> float:
     """Return seconds to keep a mode entry active before advancing."""
-    if mode in {"adsb", "adsb-records", "plane-alert"}:
+    if mode in {"adsb", "plane-alert"}:
         return max(
             1.0,
             float(app_config["loopDepartureInterval"])
@@ -471,7 +472,8 @@ def loadAdsbRecordsData(adsbConfig: dict[str, Any]) -> list[AdsbRecordBoard] | b
     if not adsbConfig["enabled"]:
         return False
     try:
-        return load_adsb_record_boards(Path(adsbConfig["recordsStorePath"]))
+        boards = load_adsb_record_boards(Path(adsbConfig["recordsStorePath"]))
+        return filter_record_boards(boards, adsbConfig["recordsWindows"])
     except AdsbRecordStoreError as err:
         print(f"Error: Failed to load ADS-B records: {err}")
         return False
@@ -1075,7 +1077,7 @@ def drawAdsbRecordsSignage(
     rowTime = snapshot(
         width,
         14,
-        renderTimeWithModeLabel("REC"),
+        renderTimeWithModeLabel("Statistics"),
         interval=0.1,
     )
 
