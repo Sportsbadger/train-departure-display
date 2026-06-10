@@ -193,6 +193,42 @@ def test_parse_plane_alerts_returns_30_most_recent_indexed_records():
     assert [alert.display_index for alert in result[:3]] == [40, 39, 38]
 
 
+def test_parse_plane_alerts_uses_timestamp_when_no_numeric_index_exists():
+    payload = [
+        {
+            "index": None,
+            "icao": "AE0001",
+            "callsign": "OLD",
+            "time:lastseen": "2026/06/06 10:00:00",
+        },
+        {
+            "index": "bad",
+            "icao": "AE0002",
+            "callsign": "NEW",
+            "time:lastseen": "2026/06/06 11:00:00",
+        },
+    ]
+
+    result = parse_plane_alerts(payload, max_age_hours=None, limit=5)
+
+    assert [alert.hex for alert in result] == ["AE0002", "AE0001"]
+
+
+def test_parse_plane_alerts_accepts_millisecond_unix_timestamps():
+    payload = [
+        {
+            "index": "1",
+            "icao": "AE0001",
+            "callsign": "TEST1",
+            "time:lastseen": "1780704000000",
+        }
+    ]
+
+    result = parse_plane_alerts(payload, max_age_hours=None, limit=5)
+
+    assert result[0].timestamp == datetime(2026, 6, 6, 0, 0, 0)
+
+
 def test_parse_plane_alerts_accepts_mapping_of_records_and_limit():
     payload = {
         "AE0001": {"hex": "AE0001", "timestamp": "2026/06/06 10:00:00"},

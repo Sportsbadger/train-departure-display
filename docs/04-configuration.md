@@ -79,7 +79,7 @@ adsbNextRightTemplate={speed} {distance} {altitude}
 
 ## Plane-Alert mode (optional)
 
-Plane-Alert support is disabled by default. When enabled, the display can alternate to a docker-planefence Plane-Alert board using the documented `pa_query.php` API exposed by the Plane-Alert web UI. Use the exact `pa_query.php` path from your Plane-Alert installation; current docker-planefence serves Plane-Alert at `/plane-alert`, so the API endpoint is usually `/plane-alert/pa_query.php`. The display requests `type=json` by default and can also parse `type=csv` output when a deployment or proxy returns CSV.
+Plane-Alert support is disabled by default. When enabled, the display can alternate to a docker-planefence Plane-Alert board using the same live history stream as the web UI: `/cgi/stream.sh?mode=plane-alert&date=all`. Legacy `pa_query.php` URLs are accepted for compatibility, but the app upgrades them to the live stream because `pa_query.php` can be stale. The stream is newline-delimited JSON (one JSON object per line); JSON arrays/objects and CSV exports remain supported as fallbacks.
 
 | Key | Example Value
 |-----|----------
@@ -87,11 +87,11 @@ Plane-Alert support is disabled by default. When enabled, the display can altern
 | `transportModes` | `train,adsb,plane-alert` (ordered comma-separated modes to display; `planealert` is also accepted; defaults to `train`)
 | `modeSwitchInterval` | `300` (seconds before switching to the next configured mode)
 | `transportFallbackMode` | `train` (fallback shown if Plane-Alert fetch/parsing fails; set to anything else to show a Plane-Alert unavailable screen instead)
-| `planeAlertSourceUrl` | `http://192.168.1.74:8088/plane-alert/pa_query.php?timestamp=.*&type=json` (Plane-Alert endpoint; include at least one documented query parameter such as `hex`, `tail`, `name`, `equipment`, `timestamp`, `call`, `lat`, or `lon`; `type=json` is added automatically if omitted)
-| `planeAlertFetchTimeout` | `15` (HTTP timeout in seconds; increase this if the browser works but the app times out)
+| `planeAlertSourceUrl` | `http://192.168.1.74:8083/cgi/stream.sh?mode=plane-alert&date=all` (live Plane-Alert stream used by the web UI; legacy `pa_query.php` URLs are upgraded automatically)
+| `planeAlertFetchTimeout` | `90` (HTTP timeout in seconds; the full live history stream can be slower than ADS-B JSON)
 | `planeAlertUserAgent` | `Mozilla/5.0 TrainDepartureDisplay/Plane-Alert` (HTTP User-Agent sent to the Plane-Alert web proxy)
 | `planeAlertRefreshTime` | `30` (seconds between Plane-Alert background JSON refresh attempts)
-| `planeAlertDisplayCount` | `5` (total Plane-Alert aircraft to show: the latest highlighted alert plus the remaining aircraft in the lower scrolling rows)
+| `planeAlertDisplayCount` | `30` (maximum/latest Plane-Alert aircraft rows to keep; configured values above 30 are capped)
 | `planeAlertMaxAgeHours` | `24` (optional maximum alert age in hours; blank means no age cap)
 | `planeAlertTopLeftTemplate` | `{summary_left}` (highlight row left block)
 | `planeAlertTopRightTemplate` | `{summary_right}` (highlight row right block)
@@ -99,9 +99,9 @@ Plane-Alert support is disabled by default. When enabled, the display can altern
 | `planeAlertNextLeftTemplate` | `{loop_alert}` (lower-row aircraft detail left block)
 | `planeAlertNextRightTemplate` | `{loop_info}` (lower-row aircraft detail right block)
 
-The Plane-Alert board sorts alerts newest first using the `timestamp` field, then displays callsign, tail/hex, equipment, owner/name, first-observed position, and observed time when present. Like ADS-B mode, the highlighted full-detail Plane-Alert record cycles through all displayed aircraft using a slightly extended `loopDepartureInterval`; the lower rows show the following records and then the configured `lastLineText` centered at the end of the list. The Plane-Alert board uses the same top-row layout as ADS-B and labels the clock row with `PLANE`. Plane-Alert data is refreshed in the background and cached before/while the mode is displayed, so slow history queries do not block OLED animation or mode transitions. The example `planeAlertSourceUrl` queries all timestamps; for large Plane-Alert histories, prefer a narrower docker-planefence regex query or increase `planeAlertFetchTimeout`.
+The Plane-Alert board sorts alerts newest first using the live stream `index` when present, falling back to `timestamp` for legacy JSON/CSV data, then displays callsign, tail/hex, equipment, owner/name, distance, altitude, first-observed position, and observed time when present. Like ADS-B mode, the highlighted full-detail Plane-Alert record cycles through all displayed aircraft using a slightly extended `loopDepartureInterval`; the lower rows show the following records and then the configured `lastLineText` centered at the end of the list. The Plane-Alert board uses the same top-row layout as ADS-B and labels the clock row with `PLANE`. Plane-Alert data is refreshed in the background and cached before/while the mode is displayed, so slow history queries do not block OLED animation or mode transitions. The latest live-stream rows are selected by highest numeric `index`; the web UI row number is `index + 1`.
 
-Plane-Alert display templates use `{variable}` placeholders. Available variables are: `{summary_left}`, `{summary_right}`, `{summary}`, `{detail}`, `{loop_alert}`, `{loop_info}`, `{loop_time}`, `{position}`, `{position_ordinal}`, `{display_name}`, `{call}`, `{tail}`, `{tail_or_hex}`, `{hex}`, `{name}`, `{owner}`, `{equipment}`, `{aircraft_type}`, `{timestamp}`, `{time}`, `{date_time}`, `{latitude}`, and `{longitude}`.
+Plane-Alert display templates use `{variable}` placeholders. Available variables are: `{summary_left}`, `{summary_right}`, `{summary}`, `{detail}`, `{loop_alert}`, `{loop_info}`, `{loop_time}`, `{position}`, `{position_ordinal}`, `{display_name}`, `{call}`, `{tail}`, `{tail_or_hex}`, `{hex}`, `{index}`, `{raw_index}`, `{name}`, `{owner}`, `{equipment}`, `{aircraft_type}`, `{distance}`, `{altitude}`, `{timestamp}`, `{time}`, `{date_time}`, `{latitude}`, and `{longitude}`.
 
 Example custom Plane-Alert mode layout:
 
