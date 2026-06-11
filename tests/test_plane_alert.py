@@ -123,6 +123,24 @@ def test_parse_plane_alerts_sorts_filters_and_accepts_wrapped_records():
     assert "AE1234" in build_plane_alert_detail_text(result[0])
 
 
+
+def test_parse_plane_alerts_applies_configured_time_offset():
+    result = parse_plane_alerts(
+        [
+            {
+                "icao": "AE0001",
+                "callsign": "BST1",
+                "time:lastseen": "2026/06/06 11:30:00",
+            }
+        ],
+        max_age_hours=None,
+        limit=1,
+        time_offset_hours=1.0,
+    )
+
+    assert result[0].timestamp == datetime(2026, 6, 6, 12, 30, 0)
+    assert format_plane_alert_timestamp(result[0].timestamp) == "12:30"
+
 def test_parse_plane_alerts_accepts_docker_planefence_query_keys():
     payload = [
         {

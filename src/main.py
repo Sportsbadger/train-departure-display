@@ -9,11 +9,6 @@ from datetime import datetime
 from PIL import ImageFont, Image, ImageDraw
 
 from trains import loadDeparturesForStation
-from alerts import (
-    DisplayAlert,
-    MqttAlertListener,
-    build_alert_template_text,
-)
 from adsb import (
     AdsbDataError,
     AdsbRouteDataError,
@@ -390,6 +385,7 @@ def loadPlaneAlertData(planeAlertConfig: dict[str, Any]):
             payload,
             planeAlertConfig["maxAgeHours"],
             int(planeAlertConfig["displayCount"]),
+            time_offset_hours=float(planeAlertConfig["timeOffsetHours"]),
         )
     except requests.Timeout as err:
         print("Error: Failed to fetch Plane-Alert data before timeout")
@@ -1266,72 +1262,6 @@ def drawPlaneAlertSignage(
     return virtualViewport
 
 
-def renderCenteredTemplateLine(
-    text: str,
-    display_font: Any,
-) -> Callable[..., None]:
-    def drawText(draw: ImageDraw.ImageDraw, width: int, *_: Any) -> None:
-        text_width, _, bitmap = cachedBitmapText(text, display_font)
-        draw.bitmap(
-            (max(0, (width - text_width) / 2), 0),
-            bitmap,
-            fill="yellow",
-        )
-
-    return drawText
-
-
-def drawAlertSignage(
-    device: Any,
-    width: int,
-    height: int,
-    alert: DisplayAlert,
-) -> Any:
-    """Build a full-screen interrupting alert viewport."""
-    virtualViewport = viewport(device, width=width, height=height)
-    width = virtualViewport.width
-
-    title_text = build_alert_template_text(config["alerts"]["titleTemplate"], alert)
-    top_text = build_alert_template_text(config["alerts"]["topTemplate"], alert)
-    middle_text = build_alert_template_text(config["alerts"]["middleTemplate"], alert)
-    bottom_text = build_alert_template_text(config["alerts"]["bottomTemplate"], alert)
-
-    rowOne = snapshot(
-        width,
-        14,
-        renderCenteredTemplateLine(title_text, fontBoldTall),
-        interval=1,
-    )
-    rowTwo = snapshot(
-        width,
-        10,
-        renderCenteredTemplateLine(top_text, fontBold),
-        interval=1,
-    )
-    rowThree = snapshot(
-        width,
-        10,
-        renderCenteredTemplateLine(middle_text, font),
-        interval=1,
-    )
-    rowFour = snapshot(
-        width,
-        10,
-        renderStations(bottom_text, initial_pause_frames=50),
-        interval=0.02,
-    )
-
-    if len(virtualViewport._hotspots) > 0:
-        for vhotspot, xy in virtualViewport._hotspots:
-            virtualViewport.remove_hotspot(vhotspot, xy)
-
-    virtualViewport.add_hotspot(rowOne, (0, 0))
-    virtualViewport.add_hotspot(rowTwo, (0, 18))
-    virtualViewport.add_hotspot(rowThree, (0, 32))
-    virtualViewport.add_hotspot(rowFour, (0, 46))
-
-    return virtualViewport
-
 def getIp():
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     s.settimeout(0)
@@ -1466,7 +1396,6 @@ try:
         config["transport"]["modes"],
         config["adsb"]["enabled"],
         config["planeAlert"]["enabled"],
-        config["alerts"]["enabled"],
     )
     modeState = build_mode_state(transportModes, time.monotonic())
     refreshExecutor = ThreadPoolExecutor(max_workers=4)
@@ -1494,11 +1423,6 @@ try:
             float(config["planeAlert"]["refreshTime"]),
             refreshExecutor,
         )
-
-    alertListener = None
-    if config["alerts"]["enabled"]:
-        alertListener = MqttAlertListener(config["alerts"])
-        alertListener.start()
 
     initial_refresh_modes = set(transportModes + [config["transport"]["fallbackMode"]])
     if "adsb-records" in initial_refresh_modes:
@@ -1528,7 +1452,6 @@ try:
     timeAtStart = 0
     timeNow = time.time()
     timeFPS = time.time()
-    activeAlertKey = ""
     lastCacheRefreshCheck = 0.0
 
     blankHours = []
@@ -1600,36 +1523,6 @@ try:
                     for cache_mode in refresh_modes:
                         if cache_mode in displayCaches:
                             displayCaches[cache_mode].refresh_if_due(now_monotonic)
-
-                activeAlert = None
-                if alertListener is not None:
-                    activeAlert = alertListener.current_alert(now_monotonic)
-
-                if activeAlert is not None:
-                    if activeAlert.key != activeAlertKey:
-                        virtual = drawAlertSignage(
-                            device,
-                            width=widgetWidth,
-                            height=widgetHeight,
-                            alert=activeAlert,
-                        )
-                        if config['dualScreen']:
-                            virtual1 = drawAlertSignage(
-                                device1,
-                                width=widgetWidth,
-                                height=widgetHeight,
-                                alert=activeAlert,
-                            )
-                        activeAlertKey = activeAlert.key
-                    timeNow = time.time()
-                    virtual.refresh()
-                    if config['dualScreen']:
-                        virtual1.refresh()
-                    continue
-
-                if activeAlertKey:
-                    activeAlertKey = ""
-                    timeAtStart = 0
 
                 if timeNow - timeAtStart >= refreshInterval:
                     # check if debug mode is enabled
@@ -1847,8 +1740,6 @@ except KeyboardInterrupt:
 except ValueError as err:
     print(f"Error: {err}")
 finally:
-    if "alertListener" in locals() and alertListener is not None:
-        alertListener.stop()
     if "refreshExecutor" in locals():
         refreshExecutor.shutdown(wait=False, cancel_futures=True)
 # except KeyError as err:

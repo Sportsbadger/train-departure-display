@@ -16,7 +16,6 @@ def parse_modes(
     raw_modes: str,
     adsb_enabled: bool,
     plane_alert_enabled: bool = False,
-    alerts_enabled: bool = False,
 ) -> list[str]:
     """Parse configured transport modes.
 
@@ -24,12 +23,9 @@ def parse_modes(
         raw_modes: Comma-separated transport mode names.
         adsb_enabled: Whether ADS-B mode is allowed.
         plane_alert_enabled: Whether Plane-Alert mode is allowed.
-        alerts_enabled: Whether the interrupt-only alerts overlay is allowed.
 
     Returns:
-        Ordered, de-duplicated cyclic mode names. The ``alerts`` token is
-        accepted for configuration readability but is not returned because
-        alerts interrupt the active mode instead of consuming a rotation slot.
+        Ordered, de-duplicated cyclic mode names.
     """
     allowed = {"train"}
     if adsb_enabled:
@@ -47,8 +43,6 @@ def parse_modes(
             mode = "plane-alert"
         if mode in {"adsb-stats", "records"}:
             mode = "adsb-records"
-        if mode == "alerts" and alerts_enabled:
-            continue
         if not mode or mode not in allowed or mode in modes:
             continue
         modes.append(mode)

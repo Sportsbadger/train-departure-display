@@ -34,7 +34,7 @@ The recommended deployment path uses balenaCloud for fleet management and OTA up
 
 ## Configuration overview
 
-The only required environment variable for train mode is the OpenLDBWS `apiKey`. Optional ADS-B and Plane-Alert boards can be added to the rotation, and the separate `alerts` feature can listen for Plane-Alert MQTT hits and interrupt the active board with a configurable full-screen alert. All settings and layout templates are documented in [Configuration](/docs/04-configuration.md).
+The only required environment variable for train mode is the OpenLDBWS `apiKey`. Optional ADS-B and Plane-Alert boards can be added to the rotation. All settings and layout templates are documented in [Configuration](/docs/04-configuration.md).
 
 ## Local development (headless)
 
