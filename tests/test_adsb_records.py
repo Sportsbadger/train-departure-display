@@ -14,6 +14,7 @@ from adsb_records import (  # noqa: E402
     normalize_record_windows,
     record_mode_entry_count,
     select_record_display_page,
+    trim_adsb_record_store,
     update_adsb_record_store,
 )
 
@@ -170,3 +171,55 @@ def test_filter_record_boards_uses_configured_windows():
     filtered = filter_record_boards(boards, ["day", "forever"])
 
     assert [board.window for board in filtered] == ["day", "forever"]
+
+
+def test_trim_adsb_record_store_removes_matching_entries(tmp_path):
+    store_path = tmp_path / "adsb-records.json"
+    update_adsb_record_store(
+        store_path,
+        [
+            aircraft("bad123", "BADFLT", 99_000, 900, 500.0),
+            aircraft("good12", "GOOD", 30_000, 450, 20.0),
+        ],
+        now=1_000_000.0,
+    )
+
+    result = trim_adsb_record_store(
+        store_path,
+        hex_values=["BAD123"],
+        labels=["BADFLT"],
+        forever_metrics=["highest", "fastest", "furthest"],
+    )
+    boards = load_adsb_record_boards(store_path, now=1_000_000.0)
+
+    assert result.observations_before == 2
+    assert result.observations_after == 1
+    assert all(
+        record.aircraft_label != "BADFLT"
+        for board in boards
+        for record in board.records
+    )
+
+
+def test_trim_adsb_record_store_dry_run_does_not_write(tmp_path):
+    store_path = tmp_path / "adsb-records.json"
+    update_adsb_record_store(
+        store_path,
+        [aircraft("bad123", "BADFLT", 99_000, 900, 500.0)],
+        now=1_000_000.0,
+    )
+
+    result = trim_adsb_record_store(
+        store_path,
+        hex_values=["bad123"],
+        forever_metrics=["highest"],
+        dry_run=True,
+    )
+    boards = load_adsb_record_boards(store_path, now=1_000_000.0)
+
+    assert result.observations_after == 0
+    assert any(
+        record.aircraft_label == "BADFLT"
+        for board in boards
+        for record in board.records
+    )

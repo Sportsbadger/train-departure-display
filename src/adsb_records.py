@@ -55,6 +55,16 @@ class AdsbRecordBoard:
 
 
 @dataclass(frozen=True)
+class AdsbRecordTrimResult:
+    """Summary of an ADS-B record store trim operation."""
+
+    observations_before: int
+    observations_after: int
+    forever_before: int
+    forever_after: int
+
+
+@dataclass(frozen=True)
 class MetricDefinition:
     """Defines how to evaluate one aircraft record metric."""
 
@@ -235,6 +245,78 @@ def load_adsb_record_boards(
     return build_record_boards(observations, forever_records, timestamp)
 
 
+def trim_adsb_record_store(
+    store_path: Path,
+    *,
+    hex_values: Iterable[str] = (),
+    labels: Iterable[str] = (),
+    forever_metrics: Iterable[str] = (),
+    dry_run: bool = False,
+) -> AdsbRecordTrimResult:
+    """Remove erroneous observations and all-time records from storage.
+
+    Args:
+        store_path: JSON file used for durable ADS-B record storage.
+        hex_values: Aircraft hex identifiers to remove from rolling windows.
+        labels: Aircraft labels/callsigns to remove from rolling and forever records.
+        forever_metrics: All-time metric keys to clear, for example ``highest``.
+        dry_run: When true, validate and report counts without writing.
+
+    Returns:
+        Counts before and after the trim.
+
+    Raises:
+        AdsbRecordStoreError: If the existing store is malformed.
+    """
+    store = _load_store(store_path)
+    observations = _read_observations(store)
+    forever_records = _read_forever_records(store)
+    normalized_hex_values = {_normalize_match_value(value) for value in hex_values}
+    normalized_labels = {_normalize_match_value(value) for value in labels}
+    normalized_metrics = {_normalize_match_value(value) for value in forever_metrics}
+
+    trimmed_observations = [
+        observation
+        for observation in observations
+        if not _matches_trim_criteria(
+            _normalize_match_value(observation.hex),
+            _normalize_match_value(observation.label),
+            normalized_hex_values,
+            normalized_labels,
+        )
+    ]
+    trimmed_forever_records = {
+        key: record
+        for key, record in forever_records.items()
+        if (
+            _normalize_match_value(key) not in normalized_metrics
+            and _normalize_match_value(record.aircraft_label) not in normalized_labels
+        )
+    }
+
+    result = AdsbRecordTrimResult(
+        observations_before=len(observations),
+        observations_after=len(trimmed_observations),
+        forever_before=len(forever_records),
+        forever_after=len(trimmed_forever_records),
+    )
+    if dry_run:
+        return result
+
+    _write_store(
+        store_path,
+        {
+            "version": CURRENT_STORE_VERSION,
+            "observations": [asdict(item) for item in trimmed_observations],
+            "forever": {
+                key: asdict(value)
+                for key, value in trimmed_forever_records.items()
+            },
+        },
+    )
+    return result
+
+
 def aircraft_to_observation(
     aircraft: AdsbAircraft,
     timestamp: float,
@@ -403,6 +485,23 @@ def format_record_value(record: AdsbMetricRecord) -> str:
     if record.metric == "descent":
         return f"-{abs(int(record.value))}fpm"
     return f"{int(record.value)}fpm"
+
+
+def _normalize_match_value(value: str) -> str:
+    return value.strip().casefold()
+
+
+def _matches_trim_criteria(
+    hex_value: str,
+    label: str,
+    hex_values: set[str],
+    labels: set[str],
+) -> bool:
+    if hex_value and hex_value in hex_values:
+        return True
+    if label and label in labels:
+        return True
+    return False
 
 
 def _normalize_window_token(raw_value: str) -> RecordWindow | None:

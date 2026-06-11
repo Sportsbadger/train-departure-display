@@ -48,7 +48,12 @@ from departure_loop import (
     ordinal,
     timed_loop_index,
 )
-from transport_modes import build_mode_state, parse_modes, update_mode_state
+from transport_modes import (
+    build_mode_state,
+    mode_run_duration_s,
+    parse_modes,
+    update_mode_state,
+)
 from refresh_cache import AsyncRefreshCache
 
 import RPi.GPIO as GPIO
@@ -165,7 +170,10 @@ adsbLoopPixelsUp = 0
 adsbLoopPauseCount = 0
 adsbLoopHasElevated = 0
 CACHE_REFRESH_CHECK_INTERVAL_S = 1.0
+PREFETCH_LEAD_TIME_S = 5.0
 PLANE_ENTRY_SCROLL_MULTIPLIER = 2.0
+STATIC_SNAPSHOT_INTERVAL_S = 0.5
+SCROLL_SNAPSHOT_INTERVAL_S = 0.02
 
 
 def mode_entry_interval_s(mode: str, app_config: dict[str, Any]) -> float:
@@ -853,7 +861,7 @@ def drawAdsbSignage(
     next_right_template = config["adsb"]["nextRightTemplate"]
     loop_row_gap = 12
     loop_block_height = loop_row_gap * 2
-    loop_frame_interval = 0.02
+    loop_frame_interval = SCROLL_SNAPSHOT_INTERVAL_S
 
     featured_index = select_featured_aircraft_index(
         aircraft[: config["adsb"]["displayCount"]],
@@ -878,7 +886,7 @@ def drawAdsbSignage(
         width,
         10,
         renderAdsbSummary(top_left_text, top_right_text, firstFont),
-        interval=loop_frame_interval,
+        interval=STATIC_SNAPSHOT_INTERVAL_S,
     )
     rowTwoB = snapshot(
         width,
@@ -951,7 +959,7 @@ def drawAdsbSignage(
             width,
             loop_block_height,
             render_adsb_loop_block(),
-            interval=loop_frame_interval,
+            interval=STATIC_SNAPSHOT_INTERVAL_S,
         )
     rowTime = snapshot(
         width,
@@ -1002,7 +1010,7 @@ def drawAdsbRecordsSignage(
     firstFont = fontBold if config['firstDepartureBold'] else font
     loop_row_gap = 12
     loop_block_height = loop_row_gap * 2
-    loop_frame_interval = 0.02
+    loop_frame_interval = SCROLL_SNAPSHOT_INTERVAL_S
 
     board, record_rows = select_record_display_page(
         boards,
@@ -1025,7 +1033,7 @@ def drawAdsbRecordsSignage(
         width,
         10,
         renderAdsbSummary(top_left_text, top_right_text, firstFont),
-        interval=loop_frame_interval,
+        interval=STATIC_SNAPSHOT_INTERVAL_S,
     )
     rowTwo = snapshot(
         width,
@@ -1068,7 +1076,7 @@ def drawAdsbRecordsSignage(
         width,
         loop_block_height,
         render_records_block(),
-        interval=loop_frame_interval,
+        interval=STATIC_SNAPSHOT_INTERVAL_S,
     )
     rowTime = snapshot(
         width,
@@ -1137,7 +1145,7 @@ def drawPlaneAlertSignage(
     next_right_template = config["planeAlert"]["nextRightTemplate"]
     loop_row_gap = 12
     loop_block_height = loop_row_gap * 2
-    loop_frame_interval = 0.02
+    loop_frame_interval = SCROLL_SNAPSHOT_INTERVAL_S
 
     featured_index = select_featured_plane_alert_index(
         display_alerts,
@@ -1162,7 +1170,7 @@ def drawPlaneAlertSignage(
         width,
         10,
         renderAdsbSummary(top_left_text, top_right_text, firstFont),
-        interval=loop_frame_interval,
+        interval=STATIC_SNAPSHOT_INTERVAL_S,
     )
     rowTwoB = snapshot(
         width,
@@ -1292,6 +1300,37 @@ def next_transport_mode(modes: list[str], active_mode: str) -> str | None:
         return None
     active_index = modes.index(active_mode)
     return modes[(active_index + 1) % len(modes)]
+
+
+def active_mode_limit_s(
+    mode: str,
+    value: Any,
+    app_config: dict[str, Any],
+) -> float:
+    """Return seconds before the active transport mode will switch."""
+    mode_run_count = app_config["transport"].get("modeRunCount")
+    if mode_run_count is None:
+        return float(app_config["transport"]["modeSwitchInterval"])
+    return mode_run_duration_s(
+        mode,
+        mode_entry_count(mode, value, app_config),
+        mode_entry_interval_s(mode, app_config),
+        int(mode_run_count),
+    )
+
+
+def prefetch_modes_for_next_cycle(
+    caches: dict[str, AsyncRefreshCache[Any]],
+    modes: list[str],
+    active_mode: str,
+    now: float,
+) -> None:
+    """Start refreshes for the next mode before it is displayed."""
+    next_mode = next_transport_mode(modes, active_mode)
+    if next_mode is None or next_mode not in caches:
+        return
+
+    caches[next_mode].refresh_if_due(now, force=True)
 
 
 def draw_cached_train_signage(
@@ -1453,6 +1492,7 @@ try:
     timeNow = time.time()
     timeFPS = time.time()
     lastCacheRefreshCheck = 0.0
+    prefetchedForModeSwitch: str | None = None
 
     blankHours = []
     if config['hoursPattern'].match(config['screenBlankHours']):
@@ -1494,6 +1534,7 @@ try:
                 )
                 if modeState.active_mode != previousMode:
                     timeAtStart = 0
+                    prefetchedForModeSwitch = None
                     if modeState.active_mode in displayCaches:
                         displayCaches[modeState.active_mode].refresh_if_due(
                             now_monotonic,
@@ -1512,17 +1553,31 @@ try:
                     >= CACHE_REFRESH_CHECK_INTERVAL_S
                 ):
                     lastCacheRefreshCheck = now_monotonic
-                    refresh_modes = {modeState.active_mode}
-                    if modeState.active_mode == "adsb-records":
-                        refresh_modes.add("adsb")
+                    if modeState.active_mode == "train":
+                        displayCaches["train"].refresh_if_due(now_monotonic)
+
+                    active_value = None
+                    if modeState.active_mode in displayCaches:
+                        active_value = displayCaches[modeState.active_mode].snapshot(
+                            now_monotonic,
+                        ).value
+                    active_limit = active_mode_limit_s(
+                        modeState.active_mode,
+                        active_value,
+                        config,
+                    )
+                    elapsed = now_monotonic - modeState.last_switch
                     if (
-                        modeState.active_mode != config["transport"]["fallbackMode"]
-                        and modeState.active_mode != "train"
+                        elapsed >= max(0.0, active_limit - PREFETCH_LEAD_TIME_S)
+                        and prefetchedForModeSwitch != modeState.active_mode
                     ):
-                        refresh_modes.add(config["transport"]["fallbackMode"])
-                    for cache_mode in refresh_modes:
-                        if cache_mode in displayCaches:
-                            displayCaches[cache_mode].refresh_if_due(now_monotonic)
+                        prefetch_modes_for_next_cycle(
+                            displayCaches,
+                            transportModes,
+                            modeState.active_mode,
+                            now_monotonic,
+                        )
+                        prefetchedForModeSwitch = modeState.active_mode
 
                 if timeNow - timeAtStart >= refreshInterval:
                     # check if debug mode is enabled
