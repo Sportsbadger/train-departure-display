@@ -194,6 +194,12 @@ def mode_entry_interval_s(
     return max(base_interval, max_mode_scroll_duration_s(mode, value, app_config))
 
 
+def effective_scroll_frame_interval_s(app_config: dict[str, Any]) -> float:
+    """Return the slowest expected frame interval for scroll animation."""
+    target_fps = max(1.0, float(app_config.get("targetFPS") or 1.0))
+    return max(SCROLL_SNAPSHOT_INTERVAL_S, 1.0 / target_fps)
+
+
 def max_mode_scroll_duration_s(
     mode: str,
     value: Any | None,
@@ -203,7 +209,13 @@ def max_mode_scroll_duration_s(
     scroll_texts = mode_scroll_texts(mode, value, app_config)
     if not scroll_texts:
         return 0.0
-    return max(scroll_animation_duration_s(text) for text in scroll_texts)
+    return max(
+        scroll_animation_duration_s(
+            text,
+            frame_interval_s=effective_scroll_frame_interval_s(app_config),
+        )
+        for text in scroll_texts
+    )
 
 
 def mode_scroll_texts(

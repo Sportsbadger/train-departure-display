@@ -61,7 +61,10 @@ def test_adsb_config_defaults_to_disabled_train_only(monkeypatch):
         config["adsb"]["topLeftTemplate"]
         == "{position_ordinal}  {summary_left}"
     )
-    assert config["adsb"]["topRightTemplate"] == "{summary_right}"
+    assert (
+        config["adsb"]["topRightTemplate"]
+        == "{aircraft_type}  {summary_speed}  {distance}  {altitude}"
+    )
     assert config["adsb"]["scrollTemplate"] == "{detail}"
     assert config["adsb"]["nextLeftTemplate"] == "{loop_aircraft}"
     assert config["adsb"]["nextRightTemplate"] == "{loop_info}"

@@ -6,7 +6,9 @@ from adsb_records import normalize_record_windows
 
 DEFAULT_ADSB_RECORDS_STORE_PATH = "/data/adsb-records.json"
 DEFAULT_ADSB_TOP_LEFT_TEMPLATE = "{position_ordinal}  {summary_left}"
-DEFAULT_ADSB_TOP_RIGHT_TEMPLATE = "{summary_right}"
+DEFAULT_ADSB_TOP_RIGHT_TEMPLATE = (
+    "{aircraft_type}  {summary_speed}  {distance}  {altitude}"
+)
 DEFAULT_ADSB_SCROLL_TEMPLATE = "{detail}"
 DEFAULT_ADSB_NEXT_LEFT_TEMPLATE = "{loop_aircraft}"
 DEFAULT_ADSB_NEXT_RIGHT_TEMPLATE = "{loop_info}"
