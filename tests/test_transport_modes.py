@@ -28,12 +28,11 @@ def test_parse_modes_respects_explicit_plane_alert_mode():
     ) == ["train", "plane-alert", "adsb"]
 
 
-def test_parse_modes_accepts_alerts_as_interrupt_only_overlay():
+def test_parse_modes_ignores_removed_alerts_overlay_token():
     assert parse_modes(
         "train,adsb,plane-alert,alerts",
         adsb_enabled=True,
         plane_alert_enabled=True,
-        alerts_enabled=True,
     ) == ["train", "adsb", "plane-alert"]
 
 

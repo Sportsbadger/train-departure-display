@@ -99,13 +99,14 @@ Plane-Alert support is disabled by default. When enabled, the display can altern
 | `planeAlertRefreshTime` | `30` (seconds between Plane-Alert background JSON refresh attempts)
 | `planeAlertDisplayCount` | `30` (maximum/latest Plane-Alert aircraft rows to keep; configured values above 30 are capped)
 | `planeAlertMaxAgeHours` | `24` (optional maximum alert age in hours; blank means no age cap)
+| `planeAlertTimeOffset` | `1` (hours to add to Plane-Alert timestamps before display/filtering; use `1` for BST when the source emits GMT)
 | `planeAlertTopLeftTemplate` | `{summary_left}` (highlight row left block)
 | `planeAlertTopRightTemplate` | `{summary_right}` (highlight row right block)
 | `planeAlertScrollTemplate` | `{detail}` (single scrolling row block)
 | `planeAlertNextLeftTemplate` | `{loop_alert}` (lower-row aircraft detail left block)
 | `planeAlertNextRightTemplate` | `{loop_info}` (lower-row aircraft detail right block)
 
-If a legacy or copied URL omits the `:8083` port, the app adds it when targeting the Plane-Alert live stream to avoid fetching `/cgi/stream.sh` from the train web server on port 80. The Plane-Alert board sorts alerts newest first using the live stream `index` when present, falling back to `timestamp` for legacy JSON/CSV data, then displays callsign, tail/hex, equipment, owner/name, distance, altitude, first-observed position, and observed time when present. Like ADS-B mode, the highlighted full-detail Plane-Alert record cycles through all displayed aircraft using two `loopDepartureInterval` periods; the lower rows show the following records and then the configured `lastLineText` centered at the end of the list. The Plane-Alert board uses the same top-row layout as ADS-B and labels the clock row with `PLANE`. Plane-Alert data is refreshed in the background and cached before/while the mode is displayed, so slow history queries do not block OLED animation or mode transitions. The latest live-stream rows are selected by highest numeric `index`; the web UI row number is `index + 1`.
+If a legacy or copied URL omits the `:8083` port, the app adds it when targeting the Plane-Alert live stream to avoid fetching `/cgi/stream.sh` from the train web server on port 80. The Plane-Alert board adds `planeAlertTimeOffset` hours to parsed timestamps, sorts alerts newest first using the live stream `index` when present, falling back to `timestamp` for legacy JSON/CSV data, then displays callsign, tail/hex, equipment, owner/name, distance, altitude, first-observed position, and observed time when present. Like ADS-B mode, the highlighted full-detail Plane-Alert record cycles through all displayed aircraft using two `loopDepartureInterval` periods; the lower rows show the following records and then the configured `lastLineText` centered at the end of the list. The Plane-Alert board uses the same top-row layout as ADS-B and labels the clock row with `PLANE`. Plane-Alert data is refreshed in the background and cached before/while the mode is displayed, so slow history queries do not block OLED animation or mode transitions. The latest live-stream rows are selected by highest numeric `index`; the web UI row number is `index + 1`.
 
 Plane-Alert display templates use `{variable}` placeholders. Available variables are: `{summary_left}`, `{summary_right}`, `{summary}`, `{detail}`, `{loop_alert}`, `{loop_info}`, `{loop_time}`, `{position}`, `{position_ordinal}`, `{display_name}`, `{call}`, `{tail}`, `{tail_or_hex}`, `{hex}`, `{index}`, `{raw_index}`, `{name}`, `{owner}`, `{equipment}`, `{aircraft_type}`, `{distance}`, `{altitude}`, `{timestamp}`, `{time}`, `{date_time}`, `{latitude}`, and `{longitude}`.
 
@@ -117,45 +118,6 @@ planeAlertTopRightTemplate={time}
 planeAlertScrollTemplate={equipment}  {name}  {hex}  {date_time}
 planeAlertNextLeftTemplate={position_ordinal} {display_name} {tail}
 planeAlertNextRightTemplate={equipment} {time}
-```
-
-## Plane-Alert MQTT alerts overlay (optional)
-
-The `alerts` feature is separate from the Plane-Alert history board. It listens for Plane-Alert MQTT hit messages in a background MQTT network thread and interrupts whatever mode is currently visible with a full-screen alert. It does not poll Plane-Alert history, does not wait for MQTT during rendering, and does not consume a normal mode-rotation slot; include `alerts` in `transportModes` for readability alongside `train,adsb,plane-alert,alerts`.
-
-| Key | Example Value
-|-----|----------
-| `alertsEnabled` | `True` (enables the interrupting MQTT alert overlay)
-| `transportModes` | `train,adsb,plane-alert,alerts` (`alerts` is accepted as an interrupt-only feature and is not rotated like train/ADS-B/Plane-Alert boards)
-| `alertsMqttHost` | `192.168.1.74` (MQTT broker hostname or IP address)
-| `alertsMqttPort` | `1883` (MQTT broker port)
-| `alertsMqttTopic` | `plane-alert/alerts/#` (Plane-Alert MQTT topic filter to subscribe to)
-| `alertsMqttUsername` | `planealert` (optional MQTT username)
-| `alertsMqttPassword` | `secret` (optional MQTT password)
-| `alertsMqttClientId` | `train-departure-display-alerts` (MQTT client ID)
-| `alertsMqttKeepalive` | `60` (MQTT keepalive seconds)
-| `alertsMqttQos` | `0` (subscription QoS, clamped to `0`-`2`)
-| `alertsMqttTlsEnabled` | `False` (enable broker TLS with default certificate validation)
-| `alertsDisplayDuration` | `20` (seconds each MQTT alert remains full-screen unless replaced by a newer hit)
-| `alertsTitleTemplate` | `{title}` (top full-screen alert row)
-| `alertsTopTemplate` | `{headline}` (second alert row)
-| `alertsMiddleTemplate` | `{equipment}  {name}` (third alert row)
-| `alertsBottomTemplate` | `{detail}` (bottom scrolling alert row)
-
-MQTT payloads can be JSON objects containing Plane-Alert-style fields such as `hex`, `tail`, `call`, `name`, `equipment`, `timestamp`, `lat`, and `lon`. Plain-text payloads are also accepted and can be displayed with `{raw}`. Alert templates support all Plane-Alert variables listed above plus `{title}`, `{headline}`, `{source}`, `{raw}`, and `{received_time}`. If multiple MQTT hits arrive while an alert is on screen, the newest queued hit replaces the active alert and restarts `alertsDisplayDuration`.
-
-Example alert overlay configuration:
-
-```bash
-alertsEnabled=True
-transportModes=train,adsb,plane-alert,alerts
-alertsMqttHost=192.168.1.74
-alertsMqttTopic=plane-alert/alerts/#
-alertsDisplayDuration=25
-alertsTitleTemplate={title}
-alertsTopTemplate={display_name} {tail_or_hex} {time}
-alertsMiddleTemplate={equipment}  {name}
-alertsBottomTemplate={detail}  MQTT {source}
 ```
 
 If using two screens the following line needs to be added into /boot/config.txt which is achieved by using the 'Define DT overlays' option within the Device configuration screen on balenaCloud: `spi1-3cs`

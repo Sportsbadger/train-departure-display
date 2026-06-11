@@ -80,7 +80,6 @@ data:
     - adsbRecordsStorePath: /data/adsb-records.json
     - adsbRecordsWindows: 24hr,7 day,All Time
     - planeAlertEnabled: True
-    - alertsEnabled: False
     - transportModes: train,plane-alert
     - modeSwitchInterval: 300
     - modeRunCount:
@@ -88,9 +87,6 @@ data:
     - planeAlertSourceUrl: http://192.168.1.74:8083/cgi/stream.sh?mode=plane-alert&date=all
     - planeAlertRefreshTime: 30
     - planeAlertDisplayCount: 30
-    - alertsMqttHost: 127.0.0.1
-    - alertsMqttPort: 1883
-    - alertsMqttTopic: plane-alert/alerts/#
-    - alertsDisplayDuration: 20
+    - planeAlertTimeOffset: 0
 version: 0.6.2
 

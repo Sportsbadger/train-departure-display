@@ -241,6 +241,7 @@ def parse_plane_alerts(
     max_age_hours: float | None,
     limit: int,
     now: datetime | None = None,
+    time_offset_hours: float = 0.0,
 ) -> list[PlaneAlert]:
     """Parse, filter, de-duplicate, and sort Plane-Alert rows newest-first.
 
@@ -249,6 +250,7 @@ def parse_plane_alerts(
         max_age_hours: Optional maximum alert age in hours.
         limit: Maximum number of most recent alerts to return.
         now: Optional current time used by tests.
+        time_offset_hours: Hours to add to parsed Plane-Alert timestamps.
 
     Returns:
         Display-ready Plane-Alert rows, sorted newest/highest-index first.
@@ -261,7 +263,7 @@ def parse_plane_alerts(
 
     records = _extract_records(payload)
     parsed = [
-        alert
+        _apply_time_offset(alert, time_offset_hours)
         for alert in (_parse_record(record) for record in records)
         if alert is not None
     ]
@@ -276,6 +278,34 @@ def parse_plane_alerts(
         if _passes_age_filter(alert, max_age_hours, now)
     ]
     return sorted(filtered, key=_plane_alert_sort_key, reverse=True)[:limit]
+
+
+def _apply_time_offset(alert: PlaneAlert, offset_hours: float) -> PlaneAlert:
+    """Return a Plane-Alert row with its timestamp shifted by offset hours.
+
+    Args:
+        alert: Parsed Plane-Alert row.
+        offset_hours: Number of hours to add to the timestamp.
+
+    Returns:
+        Original row when no timestamp/offset applies, otherwise a copied row
+        with the adjusted timestamp.
+    """
+    if alert.timestamp is None or offset_hours == 0:
+        return alert
+    return PlaneAlert(
+        hex=alert.hex,
+        tail=alert.tail,
+        call=alert.call,
+        name=alert.name,
+        equipment=alert.equipment,
+        timestamp=alert.timestamp + timedelta(hours=offset_hours),
+        lat=alert.lat,
+        lon=alert.lon,
+        index=alert.index,
+        distance=alert.distance,
+        altitude=alert.altitude,
+    )
 
 
 def select_plane_alert_scroll_alerts(
