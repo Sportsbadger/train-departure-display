@@ -179,6 +179,7 @@ STATIC_SNAPSHOT_INTERVAL_S = 0.5
 SCROLL_SNAPSHOT_INTERVAL_S = 0.02
 SCROLL_REQUIRED_CYCLES = 2
 SCROLL_CYCLE_SAFETY_FRAMES = 5
+SCROLL_EXIT_VIEWPORT_WIDTH = 256
 
 
 def mode_entry_interval_s(
@@ -262,8 +263,9 @@ def scroll_animation_duration_s(
     final_pause_frames: int = 8,
     frame_interval_s: float = SCROLL_SNAPSHOT_INTERVAL_S,
     cycles: int = SCROLL_REQUIRED_CYCLES,
+    viewport_width: int = SCROLL_EXIT_VIEWPORT_WIDTH,
 ) -> float:
-    """Return seconds needed for ``renderStations`` to scroll fully."""
+    """Return seconds needed for ``renderStations`` to fully exit twice."""
     if not text:
         return 0.0
 
@@ -272,6 +274,7 @@ def scroll_animation_duration_s(
         text_height
         + max(0, initial_pause_frames)
         + text_width
+        + max(0, viewport_width)
         + max(0, final_pause_frames)
         + SCROLL_CYCLE_SAFETY_FRAMES
     )
