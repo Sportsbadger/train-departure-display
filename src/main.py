@@ -10,6 +10,7 @@ from PIL import ImageFont, Image, ImageDraw
 
 from trains import loadDeparturesForStation
 from adsb import (
+    AdsbAircraft,
     AdsbDataError,
     AdsbRouteDataError,
     build_aircraft_template_text,
@@ -33,6 +34,7 @@ from adsb_records import (
 )
 from config import loadConfig
 from plane_alert import (
+    PlaneAlert,
     PlaneAlertDataError,
     build_plane_alert_template_text,
     fetch_plane_alert_json,
@@ -52,6 +54,7 @@ from transport_modes import (
     build_mode_state,
     mode_run_duration_s,
     parse_modes,
+    aligned_mode_switch_interval_s,
     update_mode_state,
 )
 from refresh_cache import AsyncRefreshCache
@@ -174,6 +177,8 @@ PREFETCH_LEAD_TIME_S = 5.0
 PLANE_ENTRY_SCROLL_MULTIPLIER = 2.0
 STATIC_SNAPSHOT_INTERVAL_S = 0.5
 SCROLL_SNAPSHOT_INTERVAL_S = 0.02
+SCROLL_REQUIRED_CYCLES = 2
+SCROLL_CYCLE_SAFETY_FRAMES = 5
 
 
 def mode_entry_interval_s(
@@ -211,22 +216,28 @@ def mode_scroll_texts(
         return []
 
     if mode == "adsb":
-        template = app_config["adsb"]["scrollTemplate"]
         aircraft = value[: app_config["adsb"]["displayCount"]]
+        if not all(isinstance(item, AdsbAircraft) for item in aircraft):
+            return []
+        template = app_config["adsb"]["scrollTemplate"]
         return [
             build_aircraft_template_text(template, item, position)
             for position, item in enumerate(aircraft, start=1)
         ]
 
     if mode == "plane-alert":
-        template = app_config["planeAlert"]["scrollTemplate"]
         alerts = value[: app_config["planeAlert"]["displayCount"]]
+        if not all(isinstance(item, PlaneAlert) for item in alerts):
+            return []
+        template = app_config["planeAlert"]["scrollTemplate"]
         return [
             build_plane_alert_template_text(template, alert, position)
             for position, alert in enumerate(alerts, start=1)
         ]
 
     if mode == "adsb-records":
+        if not all(isinstance(item, AdsbRecordBoard) for item in value):
+            return []
         return [build_record_summary_text(board) for board in value]
 
     return []
@@ -238,6 +249,7 @@ def scroll_animation_duration_s(
     initial_pause_frames: int = 50,
     final_pause_frames: int = 8,
     frame_interval_s: float = SCROLL_SNAPSHOT_INTERVAL_S,
+    cycles: int = SCROLL_REQUIRED_CYCLES,
 ) -> float:
     """Return seconds needed for ``renderStations`` to scroll fully."""
     if not text:
@@ -249,9 +261,9 @@ def scroll_animation_duration_s(
         + max(0, initial_pause_frames)
         + text_width
         + max(0, final_pause_frames)
-        + 2
+        + SCROLL_CYCLE_SAFETY_FRAMES
     )
-    return frames * frame_interval_s
+    return frames * frame_interval_s * max(1, cycles)
 
 
 def mode_entry_count(
@@ -1383,13 +1395,15 @@ def active_mode_limit_s(
     app_config: dict[str, Any],
 ) -> float:
     """Return seconds before the active transport mode will switch."""
+    entry_interval = mode_entry_interval_s(mode, app_config, value)
     mode_run_count = app_config["transport"].get("modeRunCount")
     if mode_run_count is None:
-        return float(app_config["transport"]["modeSwitchInterval"])
+        switch_interval = float(app_config["transport"]["modeSwitchInterval"])
+        return aligned_mode_switch_interval_s(switch_interval, entry_interval)
     return mode_run_duration_s(
         mode,
         mode_entry_count(mode, value, app_config),
-        mode_entry_interval_s(mode, app_config, value),
+        entry_interval,
         int(mode_run_count),
     )
 
@@ -1611,11 +1625,14 @@ try:
                 if modeState.active_mode != previousMode:
                     timeAtStart = 0
                     prefetchedForModeSwitch = None
+                    active_snapshot = None
                     if modeState.active_mode in displayCaches:
                         displayCaches[modeState.active_mode].refresh_if_due(
                             now_monotonic,
                             force=True,
                         )
+                        active_cache = displayCaches[modeState.active_mode]
+                        active_snapshot = active_cache.snapshot(now_monotonic).value
 
                 refreshInterval = config["refreshTime"]
                 if modeState.active_mode in {"adsb", "adsb-records", "plane-alert"}:

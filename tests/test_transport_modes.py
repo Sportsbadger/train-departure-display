@@ -5,6 +5,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.append(str(PROJECT_ROOT / "src"))
 
 from transport_modes import (  # noqa: E402
+    aligned_mode_switch_interval_s,
     build_mode_state,
     mode_run_duration_s,
     parse_modes,
@@ -91,6 +92,35 @@ def test_update_mode_state_mode_run_count_overrides_interval():
     )
     assert state.active_mode == "adsb"
     assert state.last_switch == 60.0
+
+
+def test_aligned_mode_switch_interval_rounds_to_entry_boundary():
+    assert aligned_mode_switch_interval_s(30.0, 22.0) == 44.0
+    assert aligned_mode_switch_interval_s(44.0, 22.0) == 44.0
+    assert aligned_mode_switch_interval_s(0.0, 0.0) == 1.0
+
+
+def test_update_mode_state_waits_for_full_entry_without_run_count():
+    modes = ["adsb", "adsb-records"]
+    state = build_mode_state(modes, now=0.0)
+
+    update_mode_state(
+        state,
+        modes,
+        now=30.0,
+        switch_interval_s=30.0,
+        entry_interval_s=22.0,
+    )
+    assert state.active_mode == "adsb"
+
+    update_mode_state(
+        state,
+        modes,
+        now=44.0,
+        switch_interval_s=30.0,
+        entry_interval_s=22.0,
+    )
+    assert state.active_mode == "adsb-records"
 
 
 def test_parse_modes_accepts_adsb_records_aliases():

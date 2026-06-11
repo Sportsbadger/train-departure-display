@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from math import ceil
 from typing import Sequence
 
 
@@ -86,6 +87,24 @@ def mode_run_duration_s(
     return safe_entries * safe_interval * safe_run_count
 
 
+def aligned_mode_switch_interval_s(
+    switch_interval_s: float,
+    entry_interval_s: float,
+) -> float:
+    """Round a mode switch interval up to a full entry boundary.
+
+    Args:
+        switch_interval_s: Requested transport mode switch interval in seconds.
+        entry_interval_s: Seconds required to display the current entry fully.
+
+    Returns:
+        The requested interval rounded up to a complete entry interval.
+    """
+    safe_entry_interval = max(1.0, entry_interval_s)
+    safe_switch_interval = max(1.0, switch_interval_s)
+    return ceil(safe_switch_interval / safe_entry_interval) * safe_entry_interval
+
+
 def update_mode_state(
     state: ModeState,
     modes: Sequence[str],
@@ -107,8 +126,12 @@ def update_mode_state(
         state.last_switch = now
         return
 
-    active_limit_s = switch_interval_s
-    if mode_run_count is not None:
+    if mode_run_count is None:
+        active_limit_s = aligned_mode_switch_interval_s(
+            switch_interval_s,
+            entry_interval_s,
+        )
+    else:
         active_limit_s = mode_run_duration_s(
             state.active_mode,
             entry_count,
