@@ -57,7 +57,10 @@ def test_adsb_config_defaults_to_disabled_train_only(monkeypatch):
     assert "routeset" in config["adsb"]["routeApiUrl"]
     assert config["adsb"]["routeFetchTimeout"] == 4.0
     assert config["adsb"]["routeDisplay"] == "iata"
-    assert config["adsb"]["topLeftTemplate"] == "{summary_left}"
+    assert (
+        config["adsb"]["topLeftTemplate"]
+        == "{position_ordinal}  {summary_left}"
+    )
     assert config["adsb"]["topRightTemplate"] == "{summary_right}"
     assert config["adsb"]["scrollTemplate"] == "{detail}"
     assert config["adsb"]["nextLeftTemplate"] == "{loop_aircraft}"
@@ -70,7 +73,10 @@ def test_adsb_config_defaults_to_disabled_train_only(monkeypatch):
     assert config["planeAlert"]["fetchTimeout"] == 90.0
     assert config["planeAlert"]["displayCount"] == 30
     assert config["planeAlert"]["timeOffsetHours"] == 0.0
-    assert config["planeAlert"]["topLeftTemplate"] == "{summary_left}"
+    assert (
+        config["planeAlert"]["topLeftTemplate"]
+        == "{position_ordinal}  {summary_left}"
+    )
     assert config["planeAlert"]["topRightTemplate"] == "{summary_right}"
     assert config["planeAlert"]["scrollTemplate"] == "{detail}"
     assert config["planeAlert"]["nextLeftTemplate"] == "{loop_alert}"

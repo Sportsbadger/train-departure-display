@@ -176,15 +176,82 @@ STATIC_SNAPSHOT_INTERVAL_S = 0.5
 SCROLL_SNAPSHOT_INTERVAL_S = 0.02
 
 
-def mode_entry_interval_s(mode: str, app_config: dict[str, Any]) -> float:
+def mode_entry_interval_s(
+    mode: str,
+    app_config: dict[str, Any],
+    value: Any | None = None,
+) -> float:
     """Return seconds to keep a mode entry active before advancing."""
+    base_interval = max(1.0, float(app_config["loopDepartureInterval"]))
     if mode in {"adsb", "plane-alert"}:
-        return max(
-            1.0,
-            float(app_config["loopDepartureInterval"])
-            * PLANE_ENTRY_SCROLL_MULTIPLIER,
-        )
-    return max(1.0, float(app_config["loopDepartureInterval"]))
+        base_interval *= PLANE_ENTRY_SCROLL_MULTIPLIER
+
+    return max(base_interval, max_mode_scroll_duration_s(mode, value, app_config))
+
+
+def max_mode_scroll_duration_s(
+    mode: str,
+    value: Any | None,
+    app_config: dict[str, Any],
+) -> float:
+    """Return the longest scroll animation duration needed by a mode."""
+    scroll_texts = mode_scroll_texts(mode, value, app_config)
+    if not scroll_texts:
+        return 0.0
+    return max(scroll_animation_duration_s(text) for text in scroll_texts)
+
+
+def mode_scroll_texts(
+    mode: str,
+    value: Any | None,
+    app_config: dict[str, Any],
+) -> list[str]:
+    """Return scroll-row texts that can be displayed for a transport mode."""
+    if not isinstance(value, list):
+        return []
+
+    if mode == "adsb":
+        template = app_config["adsb"]["scrollTemplate"]
+        aircraft = value[: app_config["adsb"]["displayCount"]]
+        return [
+            build_aircraft_template_text(template, item, position)
+            for position, item in enumerate(aircraft, start=1)
+        ]
+
+    if mode == "plane-alert":
+        template = app_config["planeAlert"]["scrollTemplate"]
+        alerts = value[: app_config["planeAlert"]["displayCount"]]
+        return [
+            build_plane_alert_template_text(template, alert, position)
+            for position, alert in enumerate(alerts, start=1)
+        ]
+
+    if mode == "adsb-records":
+        return [build_record_summary_text(board) for board in value]
+
+    return []
+
+
+def scroll_animation_duration_s(
+    text: str,
+    *,
+    initial_pause_frames: int = 50,
+    final_pause_frames: int = 8,
+    frame_interval_s: float = SCROLL_SNAPSHOT_INTERVAL_S,
+) -> float:
+    """Return seconds needed for ``renderStations`` to scroll fully."""
+    if not text:
+        return 0.0
+
+    text_width, text_height, _bitmap = cachedBitmapText(text, font)
+    frames = (
+        text_height
+        + max(0, initial_pause_frames)
+        + text_width
+        + max(0, final_pause_frames)
+        + 2
+    )
+    return frames * frame_interval_s
 
 
 def mode_entry_count(
@@ -866,20 +933,24 @@ def drawAdsbSignage(
     featured_index = select_featured_aircraft_index(
         aircraft[: config["adsb"]["displayCount"]],
         mode_elapsed_s if mode_elapsed_s is not None else time.monotonic(),
-        mode_entry_interval_s("adsb", config),
+        mode_entry_interval_s("adsb", config, aircraft),
     )
     featured_aircraft = aircraft[featured_index]
+    featured_position = featured_index + 1
     top_left_text = build_aircraft_template_text(
         top_left_template,
         featured_aircraft,
+        featured_position,
     )
     top_right_text = build_aircraft_template_text(
         top_right_template,
         featured_aircraft,
+        featured_position,
     )
     scroll_text = build_aircraft_template_text(
         scroll_template,
         featured_aircraft,
+        featured_position,
     )
 
     rowOneA = snapshot(
@@ -1015,7 +1086,7 @@ def drawAdsbRecordsSignage(
     board, record_rows = select_record_display_page(
         boards,
         mode_elapsed_s if mode_elapsed_s is not None else time.monotonic(),
-        mode_entry_interval_s("adsb-records", config),
+        mode_entry_interval_s("adsb-records", config, boards),
     )
     if board is None:
         return drawBlankSignage(
@@ -1150,20 +1221,24 @@ def drawPlaneAlertSignage(
     featured_index = select_featured_plane_alert_index(
         display_alerts,
         mode_elapsed_s if mode_elapsed_s is not None else time.monotonic(),
-        mode_entry_interval_s("plane-alert", config),
+        mode_entry_interval_s("plane-alert", config, display_alerts),
     )
     featured_alert = display_alerts[featured_index]
+    featured_position = featured_index + 1
     top_left_text = build_plane_alert_template_text(
         top_left_template,
         featured_alert,
+        featured_position,
     )
     top_right_text = build_plane_alert_template_text(
         top_right_template,
         featured_alert,
+        featured_position,
     )
     scroll_text = build_plane_alert_template_text(
         scroll_template,
         featured_alert,
+        featured_position,
     )
 
     rowOneA = snapshot(
@@ -1248,7 +1323,7 @@ def drawPlaneAlertSignage(
     rowTime = snapshot(
         width,
         14,
-        renderTimeWithModeLabel("PLANE"),
+        renderTimeWithModeLabel("Watchlist"),
         interval=0.1,
     )
 
@@ -1314,7 +1389,7 @@ def active_mode_limit_s(
     return mode_run_duration_s(
         mode,
         mode_entry_count(mode, value, app_config),
-        mode_entry_interval_s(mode, app_config),
+        mode_entry_interval_s(mode, app_config, value),
         int(mode_run_count),
     )
 
@@ -1530,6 +1605,7 @@ try:
                     entry_interval_s=mode_entry_interval_s(
                         modeState.active_mode,
                         config,
+                        active_snapshot,
                     ),
                 )
                 if modeState.active_mode != previousMode:
@@ -1546,6 +1622,7 @@ try:
                     refreshInterval = mode_entry_interval_s(
                         modeState.active_mode,
                         config,
+                        active_snapshot,
                     )
 
                 if (
