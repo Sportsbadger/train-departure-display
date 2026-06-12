@@ -119,9 +119,11 @@ def test_parse_plane_alerts_sorts_filters_and_accepts_wrapped_records():
 
     assert [alert.display_name for alert in result] == ["SAM123", "RCH567"]
     assert result[0].lat == 51.5
-    assert "Boeing C-32A" in build_plane_alert_detail_text(result[0])
-    assert "AE1234" in build_plane_alert_detail_text(result[0])
+    detail_text = build_plane_alert_detail_text(result[0])
 
+    assert "Boeing C-32A" in detail_text
+    assert "AE1234" not in detail_text
+    assert "06 Jun" not in detail_text
 
 
 def test_parse_plane_alerts_applies_configured_time_offset():
@@ -153,6 +155,11 @@ def test_parse_plane_alerts_accepts_docker_planefence_query_keys():
             "time:time_at_mindist": "2026/06/06 11:30:00",
             "lat": "51.500",
             "lon": "-0.100",
+            "db category": "Military",
+            "db tag1": "VIP",
+            "db tag2": "Widebody",
+            "db tag3": "Priority",
+            "route": "ADW-LHR",
         }
     ]
 
@@ -164,6 +171,11 @@ def test_parse_plane_alerts_accepts_docker_planefence_query_keys():
     assert result[0].name == "USAF"
     assert result[0].equipment == "Boeing C-32A"
     assert result[0].timestamp == datetime(2026, 6, 6, 11, 30, 0)
+    assert result[0].db_category == "Military"
+    assert result[0].db_tag1 == "VIP"
+    assert result[0].db_tag2 == "Widebody"
+    assert result[0].db_tag3 == "Priority"
+    assert result[0].route == "ADW-LHR"
 
 
 def test_decode_plane_alert_response_accepts_ndjson_and_index_sorting():
@@ -315,6 +327,39 @@ def test_build_plane_alert_template_text_handles_defaults_and_unknowns():
         == "2nd  SAM123  N123AB"
     )
     assert build_plane_alert_template_text("{missing}", alert) == ""
+
+
+def test_build_plane_alert_template_text_includes_db_tags_and_route():
+    alert = parse_plane_alerts(
+        [
+            {
+                "hex": "AE1234",
+                "db category": "Military",
+                "db tag1": "VIP",
+                "db tag2": "Widebody",
+                "db tag3": "Priority",
+                "route": "ADW-LHR",
+            }
+        ],
+        max_age_hours=None,
+        limit=1,
+    )[0]
+
+    assert (
+        build_plane_alert_template_text(
+            "{db_category} {db_tag1} {db_tag2} {db_tag3} {route}",
+            alert,
+        )
+        == "Military VIP Widebody Priority ADW-LHR"
+    )
+    assert (
+        build_plane_alert_template_text(
+            "{db category} {db tag1} {db tag2} {db tag3}",
+            alert,
+        )
+        == "Military VIP Widebody Priority"
+    )
+    assert "ADW-LHR" in build_plane_alert_detail_text(alert)
 
 
 def test_select_featured_plane_alert_index_cycles_one_alert_at_a_time():

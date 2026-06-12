@@ -58,7 +58,11 @@ from transport_modes import (
     update_mode_state,
 )
 from refresh_cache import AsyncRefreshCache
-from scroll_sync import ScrollCompletion
+from scroll_sync import (
+    SCROLL_REQUIRED_CYCLES,
+    ScrollCompletion,
+    mode_scroll_required_cycles,
+)
 
 import RPi.GPIO as GPIO
 
@@ -178,7 +182,6 @@ PREFETCH_LEAD_TIME_S = 5.0
 PLANE_ENTRY_SCROLL_MULTIPLIER = 2.0
 STATIC_SNAPSHOT_INTERVAL_S = 0.5
 SCROLL_SNAPSHOT_INTERVAL_S = 0.02
-SCROLL_REQUIRED_CYCLES = 2
 SCROLL_CYCLE_SAFETY_FRAMES = 5
 SCROLL_EXIT_VIEWPORT_WIDTH = 256
 SCROLL_SYNCED_MODES = {"adsb", "adsb-records", "plane-alert"}
@@ -216,6 +219,7 @@ def max_mode_scroll_duration_s(
         scroll_animation_duration_s(
             text,
             frame_interval_s=effective_scroll_frame_interval_s(app_config),
+            cycles=mode_scroll_required_cycles(mode),
         )
         for text in scroll_texts
     )
@@ -1852,7 +1856,7 @@ try:
                                 )
                         elif boards is not False:
                             activeScrollCompletion = ScrollCompletion(
-                                SCROLL_REQUIRED_CYCLES,
+                                mode_scroll_required_cycles("adsb-records"),
                             )
                             virtual = drawAdsbRecordsSignage(
                                 device,
