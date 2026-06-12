@@ -521,12 +521,12 @@ def build_plane_alert_detail_text(alert: PlaneAlert) -> str:
         alert: Plane-Alert row to render.
 
     Returns:
-        Detail text containing aircraft, owner, measurements, and time.
+        Detail text containing aircraft, owner, database metadata, route, and
+        measurements.
     """
     parts = [
         alert.equipment,
         alert.name,
-        alert.hex.upper(),
         alert.db_category,
         alert.db_tag1,
         alert.db_tag2,
@@ -537,10 +537,6 @@ def build_plane_alert_detail_text(alert: PlaneAlert) -> str:
         parts.append(alert.distance)
     if alert.altitude:
         parts.append(alert.altitude)
-    if alert.lat is not None and alert.lon is not None:
-        parts.append(f"{alert.lat:.3f},{alert.lon:.3f}")
-    if alert.timestamp is not None:
-        parts.append(alert.timestamp.strftime("%d %b %H:%M"))
     return "  ".join(part for part in parts if part)
 
 

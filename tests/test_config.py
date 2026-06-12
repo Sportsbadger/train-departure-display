@@ -83,7 +83,10 @@ def test_adsb_config_defaults_to_disabled_train_only(monkeypatch):
     assert config["planeAlert"]["topRightTemplate"] == "{summary_right}"
     assert config["planeAlert"]["scrollTemplate"] == "{detail}"
     assert config["planeAlert"]["nextLeftTemplate"] == "{loop_alert}"
-    assert config["planeAlert"]["nextRightTemplate"] == "{loop_info}"
+    assert (
+        config["planeAlert"]["nextRightTemplate"]
+        == "{db_category}  {loop_info}"
+    )
 
 
 def test_adsb_config_parses_enabled_values(monkeypatch):

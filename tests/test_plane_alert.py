@@ -119,9 +119,11 @@ def test_parse_plane_alerts_sorts_filters_and_accepts_wrapped_records():
 
     assert [alert.display_name for alert in result] == ["SAM123", "RCH567"]
     assert result[0].lat == 51.5
-    assert "Boeing C-32A" in build_plane_alert_detail_text(result[0])
-    assert "AE1234" in build_plane_alert_detail_text(result[0])
+    detail_text = build_plane_alert_detail_text(result[0])
 
+    assert "Boeing C-32A" in detail_text
+    assert "AE1234" not in detail_text
+    assert "06 Jun" not in detail_text
 
 
 def test_parse_plane_alerts_applies_configured_time_offset():

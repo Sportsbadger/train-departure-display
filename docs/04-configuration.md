@@ -115,9 +115,9 @@ Plane-Alert support is disabled by default. When enabled, the display can altern
 | `planeAlertTopRightTemplate` | `{summary_right}` (highlight row right block)
 | `planeAlertScrollTemplate` | `{detail}` (single scrolling row block)
 | `planeAlertNextLeftTemplate` | `{loop_alert}` (lower-row aircraft detail left block)
-| `planeAlertNextRightTemplate` | `{loop_info}` (lower-row aircraft detail right block)
+| `planeAlertNextRightTemplate` | `{db_category}  {loop_info}` (lower-row category and aircraft detail right block)
 
-If a legacy or copied URL omits the `:8083` port, the app adds it when targeting the Plane-Alert live stream to avoid fetching `/cgi/stream.sh` from the train web server on port 80. The Plane-Alert board adds `planeAlertTimeOffset` hours to parsed timestamps, sorts alerts newest first using the live stream `index` when present, falling back to `timestamp` for legacy JSON/CSV data, then displays callsign, tail/hex, equipment, owner/name, distance, altitude, first-observed position, observed time, database category/tags, and route when present. Like ADS-B mode, the highlighted full-detail Plane-Alert record cycles through all displayed aircraft using two `loopDepartureInterval` periods; the lower rows show the following records and then the configured `lastLineText` centered at the end of the list. The Plane-Alert board uses the same top-row layout as ADS-B and labels the clock row with `PLANE`. Plane-Alert data is refreshed in the background and cached before/while the mode is displayed, so slow history queries do not block OLED animation or mode transitions. The latest live-stream rows are selected by highest numeric `index`; the web UI row number is `index + 1`.
+If a legacy or copied URL omits the `:8083` port, the app adds it when targeting the Plane-Alert live stream to avoid fetching `/cgi/stream.sh` from the train web server on port 80. The Plane-Alert board adds `planeAlertTimeOffset` hours to parsed timestamps, sorts alerts newest first using the live stream `index` when present, falling back to `timestamp` for legacy JSON/CSV data, then displays callsign, tail/hex, equipment, owner/name, distance, altitude, database category/tags, and route when present. The default highlighted scroll line omits hex, position/bearing-style data, and observed time. Like ADS-B mode, the highlighted full-detail Plane-Alert record cycles through all displayed aircraft using two `loopDepartureInterval` periods; the lower rows show the following records and then the configured `lastLineText` centered at the end of the list. The Plane-Alert board uses the same top-row layout as ADS-B and labels the clock row with `PLANE`. Plane-Alert data is refreshed in the background and cached before/while the mode is displayed, so slow history queries do not block OLED animation or mode transitions. The latest live-stream rows are selected by highest numeric `index`; the web UI row number is `index + 1`.
 
 Plane-Alert display templates use `{variable}` placeholders. Available variables are: `{summary_left}`, `{summary_right}`, `{summary}`, `{detail}`, `{loop_alert}`, `{loop_info}`, `{loop_time}`, `{position}`, `{position_ordinal}`, `{display_name}`, `{call}`, `{tail}`, `{tail_or_hex}`, `{hex}`, `{index}`, `{raw_index}`, `{name}`, `{owner}`, `{equipment}`, `{aircraft_type}`, `{distance}`, `{altitude}`, `{db category}`, `{db_category}`, `{db tag1}`, `{db_tag1}`, `{db tag2}`, `{db_tag2}`, `{db tag3}`, `{db_tag3}`, `{route}`, `{timestamp}`, `{time}`, `{date_time}`, `{latitude}`, and `{longitude}`.
 
@@ -126,9 +126,9 @@ Example custom Plane-Alert mode layout:
 ```bash
 planeAlertTopLeftTemplate={display_name} {tail_or_hex}
 planeAlertTopRightTemplate={time}
-planeAlertScrollTemplate={equipment}  {name}  {hex}  {date_time}
+planeAlertScrollTemplate={equipment}  {name}  {db_category}  {route}
 planeAlertNextLeftTemplate={position_ordinal} {display_name} {tail}
-planeAlertNextRightTemplate={equipment} {time}
+planeAlertNextRightTemplate={db_category} {equipment}
 ```
 
 If using two screens the following line needs to be added into /boot/config.txt which is achieved by using the 'Define DT overlays' option within the Device configuration screen on balenaCloud: `spi1-3cs`
