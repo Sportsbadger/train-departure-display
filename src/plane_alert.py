@@ -48,6 +48,11 @@ FIELD_ALIASES: Mapping[str, tuple[str, ...]] = {
     ),
     "lat": ("lat", "latitude"),
     "lon": ("lon", "longitude", "lng"),
+    "db_category": ("db category", "db:category", "db_category", "category"),
+    "db_tag1": ("db tag1", "db:tag1", "db_tag1", "tag1"),
+    "db_tag2": ("db tag2", "db:tag2", "db_tag2", "tag2"),
+    "db_tag3": ("db tag3", "db:tag3", "db_tag3", "tag3"),
+    "route": ("route", "route:name", "route_name"),
 }
 
 JSON_WRAPPER_KEYS = (
@@ -75,6 +80,11 @@ class PlaneAlert:
     index: int | None = None
     distance: str = ""
     altitude: str = ""
+    db_category: str = ""
+    db_tag1: str = ""
+    db_tag2: str = ""
+    db_tag3: str = ""
+    route: str = ""
 
     @property
     def display_name(self) -> str:
@@ -305,6 +315,11 @@ def _apply_time_offset(alert: PlaneAlert, offset_hours: float) -> PlaneAlert:
         index=alert.index,
         distance=alert.distance,
         altitude=alert.altitude,
+        db_category=alert.db_category,
+        db_tag1=alert.db_tag1,
+        db_tag2=alert.db_tag2,
+        db_tag3=alert.db_tag3,
+        route=alert.route,
     )
 
 
@@ -508,7 +523,16 @@ def build_plane_alert_detail_text(alert: PlaneAlert) -> str:
     Returns:
         Detail text containing aircraft, owner, measurements, and time.
     """
-    parts = [alert.equipment, alert.name, alert.hex.upper()]
+    parts = [
+        alert.equipment,
+        alert.name,
+        alert.hex.upper(),
+        alert.db_category,
+        alert.db_tag1,
+        alert.db_tag2,
+        alert.db_tag3,
+        alert.route,
+    ]
     if alert.distance:
         parts.append(alert.distance)
     if alert.altitude:
@@ -576,6 +600,16 @@ def _plane_alert_template_value(
             return alert.distance
         case "altitude":
             return alert.altitude
+        case "db_category" | "db category":
+            return alert.db_category
+        case "db_tag1" | "db tag1":
+            return alert.db_tag1
+        case "db_tag2" | "db tag2":
+            return alert.db_tag2
+        case "db_tag3" | "db tag3":
+            return alert.db_tag3
+        case "route":
+            return alert.route
         case "position":
             return position or ""
         case "position_ordinal":
@@ -647,6 +681,11 @@ def _parse_mapping(item: Mapping[str, Any]) -> PlaneAlert | None:
         index=_optional_int(normalized.get("index")),
         distance=_format_measurement(normalized, "distance", "nm"),
         altitude=_format_measurement(normalized, "altitude", "ft"),
+        db_category=_first_clean_text(normalized, *FIELD_ALIASES["db_category"]),
+        db_tag1=_first_clean_text(normalized, *FIELD_ALIASES["db_tag1"]),
+        db_tag2=_first_clean_text(normalized, *FIELD_ALIASES["db_tag2"]),
+        db_tag3=_first_clean_text(normalized, *FIELD_ALIASES["db_tag3"]),
+        route=_first_clean_text(normalized, *FIELD_ALIASES["route"]),
     )
 
 
@@ -655,7 +694,7 @@ def _parse_sequence(item: Sequence[Any]) -> PlaneAlert | None:
     if len(values) < 3:
         return None
 
-    padded = values + [""] * 8
+    padded = values + [""] * 13
     return _parse_mapping(
         {
             "hex": padded[0],
@@ -666,6 +705,11 @@ def _parse_sequence(item: Sequence[Any]) -> PlaneAlert | None:
             "call": padded[5],
             "lat": padded[6],
             "lon": padded[7],
+            "db category": padded[8],
+            "db tag1": padded[9],
+            "db tag2": padded[10],
+            "db tag3": padded[11],
+            "route": padded[12],
         },
     )
 
@@ -711,6 +755,11 @@ def _field_score(alert: PlaneAlert) -> int:
             alert.index,
             alert.distance,
             alert.altitude,
+            alert.db_category,
+            alert.db_tag1,
+            alert.db_tag2,
+            alert.db_tag3,
+            alert.route,
         )
         if value not in (None, "")
     )
