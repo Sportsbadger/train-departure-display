@@ -10,6 +10,7 @@ from PIL import ImageFont, Image, ImageDraw
 
 from trains import loadDeparturesForStation
 from adsb import (
+    AdsbAircraft,
     AdsbDataError,
     AdsbRouteDataError,
     build_aircraft_template_text,
@@ -33,6 +34,7 @@ from adsb_records import (
 )
 from config import loadConfig
 from plane_alert import (
+    PlaneAlert,
     PlaneAlertDataError,
     build_plane_alert_template_text,
     fetch_plane_alert_json,
@@ -52,9 +54,11 @@ from transport_modes import (
     build_mode_state,
     mode_run_duration_s,
     parse_modes,
+    aligned_mode_switch_interval_s,
     update_mode_state,
 )
 from refresh_cache import AsyncRefreshCache
+from scroll_sync import ScrollCompletion
 
 import RPi.GPIO as GPIO
 
@@ -174,17 +178,109 @@ PREFETCH_LEAD_TIME_S = 5.0
 PLANE_ENTRY_SCROLL_MULTIPLIER = 2.0
 STATIC_SNAPSHOT_INTERVAL_S = 0.5
 SCROLL_SNAPSHOT_INTERVAL_S = 0.02
+SCROLL_REQUIRED_CYCLES = 2
+SCROLL_CYCLE_SAFETY_FRAMES = 5
+SCROLL_EXIT_VIEWPORT_WIDTH = 256
+SCROLL_SYNCED_MODES = {"adsb", "adsb-records", "plane-alert"}
 
 
-def mode_entry_interval_s(mode: str, app_config: dict[str, Any]) -> float:
+def mode_entry_interval_s(
+    mode: str,
+    app_config: dict[str, Any],
+    value: Any | None = None,
+) -> float:
     """Return seconds to keep a mode entry active before advancing."""
+    base_interval = max(1.0, float(app_config["loopDepartureInterval"]))
     if mode in {"adsb", "plane-alert"}:
-        return max(
-            1.0,
-            float(app_config["loopDepartureInterval"])
-            * PLANE_ENTRY_SCROLL_MULTIPLIER,
+        base_interval *= PLANE_ENTRY_SCROLL_MULTIPLIER
+
+    return max(base_interval, max_mode_scroll_duration_s(mode, value, app_config))
+
+
+def effective_scroll_frame_interval_s(app_config: dict[str, Any]) -> float:
+    """Return the slowest expected frame interval for scroll animation."""
+    target_fps = max(1.0, float(app_config.get("targetFPS") or 1.0))
+    return max(SCROLL_SNAPSHOT_INTERVAL_S, 1.0 / target_fps)
+
+
+def max_mode_scroll_duration_s(
+    mode: str,
+    value: Any | None,
+    app_config: dict[str, Any],
+) -> float:
+    """Return the longest scroll animation duration needed by a mode."""
+    scroll_texts = mode_scroll_texts(mode, value, app_config)
+    if not scroll_texts:
+        return 0.0
+    return max(
+        scroll_animation_duration_s(
+            text,
+            frame_interval_s=effective_scroll_frame_interval_s(app_config),
         )
-    return max(1.0, float(app_config["loopDepartureInterval"]))
+        for text in scroll_texts
+    )
+
+
+def mode_scroll_texts(
+    mode: str,
+    value: Any | None,
+    app_config: dict[str, Any],
+) -> list[str]:
+    """Return scroll-row texts that can be displayed for a transport mode."""
+    if not isinstance(value, list):
+        return []
+
+    if mode == "adsb":
+        aircraft = value[: app_config["adsb"]["displayCount"]]
+        if not all(isinstance(item, AdsbAircraft) for item in aircraft):
+            return []
+        template = app_config["adsb"]["scrollTemplate"]
+        return [
+            build_aircraft_template_text(template, item, position)
+            for position, item in enumerate(aircraft, start=1)
+        ]
+
+    if mode == "plane-alert":
+        alerts = value[: app_config["planeAlert"]["displayCount"]]
+        if not all(isinstance(item, PlaneAlert) for item in alerts):
+            return []
+        template = app_config["planeAlert"]["scrollTemplate"]
+        return [
+            build_plane_alert_template_text(template, alert, position)
+            for position, alert in enumerate(alerts, start=1)
+        ]
+
+    if mode == "adsb-records":
+        if not all(isinstance(item, AdsbRecordBoard) for item in value):
+            return []
+        return [build_record_summary_text(board) for board in value]
+
+    return []
+
+
+def scroll_animation_duration_s(
+    text: str,
+    *,
+    initial_pause_frames: int = 50,
+    final_pause_frames: int = 8,
+    frame_interval_s: float = SCROLL_SNAPSHOT_INTERVAL_S,
+    cycles: int = SCROLL_REQUIRED_CYCLES,
+    viewport_width: int = SCROLL_EXIT_VIEWPORT_WIDTH,
+) -> float:
+    """Return seconds needed for ``renderStations`` to fully exit twice."""
+    if not text:
+        return 0.0
+
+    text_width, text_height, _bitmap = cachedBitmapText(text, font)
+    frames = (
+        text_height
+        + max(0, initial_pause_frames)
+        + text_width
+        + max(0, viewport_width)
+        + max(0, final_pause_frames)
+        + SCROLL_CYCLE_SAFETY_FRAMES
+    )
+    return frames * frame_interval_s * max(1, cycles)
 
 
 def mode_entry_count(
@@ -213,7 +309,11 @@ def mode_entry_count(
     return max(1, (visible_loop_departures + 1) // 2)
 
 
-def renderStations(stations, initial_pause_frames=20):
+def renderStations(
+    stations,
+    initial_pause_frames=20,
+    completion: ScrollCompletion | None = None,
+):
     pixels_left = 1
     pixels_up = 0
     has_elevated = False
@@ -223,12 +323,19 @@ def renderStations(stations, initial_pause_frames=20):
     def drawText(draw, *_):
         nonlocal pixels_left, pixels_up, has_elevated, pause_count
 
+        if completion is not None and completion.complete:
+            return
+
         if has_elevated:
             # slide the bitmap left until it's fully out of view
             draw.bitmap((pixels_left - 1, 0), bitmap, fill="yellow")
             if -pixels_left > txt_width:
                 pause_count += 1
                 if pause_count >= 8:
+                    if completion is not None:
+                        completion.mark_cycle_complete()
+                        if completion.complete:
+                            return
                     pixels_left = 1
                     pixels_up = 0
                     has_elevated = False
@@ -838,6 +945,8 @@ def drawAdsbSignage(
     height: int,
     aircraft: list[Any],
     mode_elapsed_s: float | None = None,
+    entry_index: int | None = None,
+    scroll_completion: ScrollCompletion | None = None,
 ) -> Any:
     global stationRenderCount, pauseCount
     global adsbLoopPixelsUp, adsbLoopPauseCount, adsbLoopHasElevated
@@ -863,23 +972,31 @@ def drawAdsbSignage(
     loop_block_height = loop_row_gap * 2
     loop_frame_interval = SCROLL_SNAPSHOT_INTERVAL_S
 
-    featured_index = select_featured_aircraft_index(
-        aircraft[: config["adsb"]["displayCount"]],
-        mode_elapsed_s if mode_elapsed_s is not None else time.monotonic(),
-        mode_entry_interval_s("adsb", config),
-    )
-    featured_aircraft = aircraft[featured_index]
+    display_aircraft = aircraft[: config["adsb"]["displayCount"]]
+    if entry_index is None:
+        featured_index = select_featured_aircraft_index(
+            display_aircraft,
+            mode_elapsed_s if mode_elapsed_s is not None else time.monotonic(),
+            mode_entry_interval_s("adsb", config, aircraft),
+        )
+    else:
+        featured_index = entry_index % len(display_aircraft)
+    featured_aircraft = display_aircraft[featured_index]
+    featured_position = featured_index + 1
     top_left_text = build_aircraft_template_text(
         top_left_template,
         featured_aircraft,
+        featured_position,
     )
     top_right_text = build_aircraft_template_text(
         top_right_template,
         featured_aircraft,
+        featured_position,
     )
     scroll_text = build_aircraft_template_text(
         scroll_template,
         featured_aircraft,
+        featured_position,
     )
 
     rowOneA = snapshot(
@@ -894,12 +1011,13 @@ def drawAdsbSignage(
         renderStations(
             scroll_text,
             initial_pause_frames=50,
+            completion=scroll_completion,
         ),
         interval=loop_frame_interval,
     )
 
     loop_departures = select_secondary_aircraft_display_rows(
-        aircraft[: config["adsb"]["displayCount"]],
+        display_aircraft,
         featured_index,
     )
 
@@ -995,6 +1113,8 @@ def drawAdsbRecordsSignage(
     height: int,
     boards: list[AdsbRecordBoard],
     mode_elapsed_s: float | None = None,
+    entry_index: int | None = None,
+    scroll_completion: ScrollCompletion | None = None,
 ) -> Any:
     """Build ADS-B record signage for day, week, and all-time boards."""
     if len(boards) == 0:
@@ -1012,10 +1132,16 @@ def drawAdsbRecordsSignage(
     loop_block_height = loop_row_gap * 2
     loop_frame_interval = SCROLL_SNAPSHOT_INTERVAL_S
 
+    entry_interval = mode_entry_interval_s("adsb-records", config, boards)
+    page_elapsed_s = (
+        entry_index * entry_interval
+        if entry_index is not None
+        else mode_elapsed_s if mode_elapsed_s is not None else time.monotonic()
+    )
     board, record_rows = select_record_display_page(
         boards,
-        mode_elapsed_s if mode_elapsed_s is not None else time.monotonic(),
-        mode_entry_interval_s("adsb-records", config),
+        page_elapsed_s,
+        entry_interval,
     )
     if board is None:
         return drawBlankSignage(
@@ -1038,7 +1164,11 @@ def drawAdsbRecordsSignage(
     rowTwo = snapshot(
         width,
         10,
-        renderStations(scroll_text, initial_pause_frames=50),
+        renderStations(
+            scroll_text,
+            initial_pause_frames=50,
+            completion=scroll_completion,
+        ),
         interval=loop_frame_interval,
     )
 
@@ -1122,6 +1252,8 @@ def drawPlaneAlertSignage(
     height: int,
     alerts: list[Any],
     mode_elapsed_s: float | None = None,
+    entry_index: int | None = None,
+    scroll_completion: ScrollCompletion | None = None,
 ) -> Any:
     global stationRenderCount, pauseCount
 
@@ -1147,23 +1279,30 @@ def drawPlaneAlertSignage(
     loop_block_height = loop_row_gap * 2
     loop_frame_interval = SCROLL_SNAPSHOT_INTERVAL_S
 
-    featured_index = select_featured_plane_alert_index(
-        display_alerts,
-        mode_elapsed_s if mode_elapsed_s is not None else time.monotonic(),
-        mode_entry_interval_s("plane-alert", config),
-    )
+    if entry_index is None:
+        featured_index = select_featured_plane_alert_index(
+            display_alerts,
+            mode_elapsed_s if mode_elapsed_s is not None else time.monotonic(),
+            mode_entry_interval_s("plane-alert", config, display_alerts),
+        )
+    else:
+        featured_index = entry_index % len(display_alerts)
     featured_alert = display_alerts[featured_index]
+    featured_position = featured_index + 1
     top_left_text = build_plane_alert_template_text(
         top_left_template,
         featured_alert,
+        featured_position,
     )
     top_right_text = build_plane_alert_template_text(
         top_right_template,
         featured_alert,
+        featured_position,
     )
     scroll_text = build_plane_alert_template_text(
         scroll_template,
         featured_alert,
+        featured_position,
     )
 
     rowOneA = snapshot(
@@ -1175,7 +1314,11 @@ def drawPlaneAlertSignage(
     rowTwoB = snapshot(
         width,
         10,
-        renderStations(scroll_text, initial_pause_frames=50),
+        renderStations(
+            scroll_text,
+            initial_pause_frames=50,
+            completion=scroll_completion,
+        ),
         interval=loop_frame_interval,
     )
 
@@ -1248,7 +1391,7 @@ def drawPlaneAlertSignage(
     rowTime = snapshot(
         width,
         14,
-        renderTimeWithModeLabel("PLANE"),
+        renderTimeWithModeLabel("Watchlist"),
         interval=0.1,
     )
 
@@ -1308,13 +1451,15 @@ def active_mode_limit_s(
     app_config: dict[str, Any],
 ) -> float:
     """Return seconds before the active transport mode will switch."""
+    entry_interval = mode_entry_interval_s(mode, app_config, value)
     mode_run_count = app_config["transport"].get("modeRunCount")
     if mode_run_count is None:
-        return float(app_config["transport"]["modeSwitchInterval"])
+        switch_interval = float(app_config["transport"]["modeSwitchInterval"])
+        return aligned_mode_switch_interval_s(switch_interval, entry_interval)
     return mode_run_duration_s(
         mode,
         mode_entry_count(mode, value, app_config),
-        mode_entry_interval_s(mode, app_config),
+        entry_interval,
         int(mode_run_count),
     )
 
@@ -1493,6 +1638,8 @@ try:
     timeFPS = time.time()
     lastCacheRefreshCheck = 0.0
     prefetchedForModeSwitch: str | None = None
+    activeScrollCompletion: ScrollCompletion | None = None
+    syncedEntryIndex = 0
 
     blankHours = []
     if config['hoursPattern'].match(config['screenBlankHours']):
@@ -1516,36 +1663,58 @@ try:
                     active_snapshot = displayCaches[modeState.active_mode].snapshot(
                         now_monotonic,
                     ).value
-                update_mode_state(
-                    modeState,
-                    transportModes,
-                    now_monotonic,
-                    float(config["transport"]["modeSwitchInterval"]),
-                    mode_run_count=config["transport"].get("modeRunCount"),
-                    entry_count=mode_entry_count(
-                        modeState.active_mode,
-                        active_snapshot,
-                        config,
-                    ),
-                    entry_interval_s=mode_entry_interval_s(
-                        modeState.active_mode,
-                        config,
-                    ),
+                can_switch_mode = not (
+                    modeState.active_mode in SCROLL_SYNCED_MODES
+                    and activeScrollCompletion is not None
+                    and not activeScrollCompletion.complete
                 )
+                if can_switch_mode:
+                    update_mode_state(
+                        modeState,
+                        transportModes,
+                        now_monotonic,
+                        float(config["transport"]["modeSwitchInterval"]),
+                        mode_run_count=config["transport"].get("modeRunCount"),
+                        entry_count=mode_entry_count(
+                            modeState.active_mode,
+                            active_snapshot,
+                            config,
+                        ),
+                        entry_interval_s=mode_entry_interval_s(
+                            modeState.active_mode,
+                            config,
+                            active_snapshot,
+                        ),
+                    )
+                scrollCompletedThisFrame = False
                 if modeState.active_mode != previousMode:
                     timeAtStart = 0
                     prefetchedForModeSwitch = None
+                    activeScrollCompletion = None
+                    syncedEntryIndex = 0
+                    active_snapshot = None
                     if modeState.active_mode in displayCaches:
                         displayCaches[modeState.active_mode].refresh_if_due(
                             now_monotonic,
                             force=True,
                         )
+                        active_cache = displayCaches[modeState.active_mode]
+                        active_snapshot = active_cache.snapshot(now_monotonic).value
+                elif (
+                    modeState.active_mode in SCROLL_SYNCED_MODES
+                    and activeScrollCompletion is not None
+                    and activeScrollCompletion.complete
+                ):
+                    syncedEntryIndex += 1
+                    activeScrollCompletion = None
+                    scrollCompletedThisFrame = True
 
                 refreshInterval = config["refreshTime"]
                 if modeState.active_mode in {"adsb", "adsb-records", "plane-alert"}:
                     refreshInterval = mode_entry_interval_s(
                         modeState.active_mode,
                         config,
+                        active_snapshot,
                     )
 
                 if (
@@ -1579,7 +1748,17 @@ try:
                         )
                         prefetchedForModeSwitch = modeState.active_mode
 
-                if timeNow - timeAtStart >= refreshInterval:
+                shouldRedraw = timeNow - timeAtStart >= refreshInterval
+                if modeState.active_mode in SCROLL_SYNCED_MODES:
+                    if activeScrollCompletion is None:
+                        shouldRedraw = (
+                            scrollCompletedThisFrame
+                            or timeNow - timeAtStart >= refreshInterval
+                        )
+                    else:
+                        shouldRedraw = activeScrollCompletion.complete
+
+                if shouldRedraw:
                     # check if debug mode is enabled
                     if config["debug"] == True:
                         print(config["debug"])
@@ -1603,6 +1782,9 @@ try:
                                     departureStation="Loading ADS-B",
                                 )
                         elif aircraft is not False:
+                            activeScrollCompletion = ScrollCompletion(
+                                SCROLL_REQUIRED_CYCLES,
+                            )
                             virtual = drawAdsbSignage(
                                 device,
                                 width=widgetWidth,
@@ -1611,6 +1793,8 @@ try:
                                 mode_elapsed_s=(
                                     now_monotonic - modeState.last_switch
                                 ),
+                                entry_index=syncedEntryIndex,
+                                scroll_completion=activeScrollCompletion,
                             )
                             if config['dualScreen']:
                                 virtual1 = drawAdsbSignage(
@@ -1621,6 +1805,7 @@ try:
                                     mode_elapsed_s=(
                                         now_monotonic - modeState.last_switch
                                     ),
+                                    entry_index=syncedEntryIndex,
                                 )
                         elif config["transport"]["fallbackMode"] == "train":
                             data = displayCaches["train"].snapshot(now_monotonic).value
@@ -1666,6 +1851,9 @@ try:
                                     departureStation="Loading ADS-B records",
                                 )
                         elif boards is not False:
+                            activeScrollCompletion = ScrollCompletion(
+                                SCROLL_REQUIRED_CYCLES,
+                            )
                             virtual = drawAdsbRecordsSignage(
                                 device,
                                 width=widgetWidth,
@@ -1674,6 +1862,8 @@ try:
                                 mode_elapsed_s=(
                                     now_monotonic - modeState.last_switch
                                 ),
+                                entry_index=syncedEntryIndex,
+                                scroll_completion=activeScrollCompletion,
                             )
                             if config['dualScreen']:
                                 virtual1 = drawAdsbRecordsSignage(
@@ -1684,6 +1874,7 @@ try:
                                     mode_elapsed_s=(
                                         now_monotonic - modeState.last_switch
                                     ),
+                                    entry_index=syncedEntryIndex,
                                 )
                         elif config["transport"]["fallbackMode"] == "train":
                             data = displayCaches["train"].snapshot(now_monotonic).value
@@ -1727,6 +1918,9 @@ try:
                                     departureStation="Loading Plane-Alert",
                                 )
                         elif alerts is not False:
+                            activeScrollCompletion = ScrollCompletion(
+                                SCROLL_REQUIRED_CYCLES,
+                            )
                             virtual = drawPlaneAlertSignage(
                                 device,
                                 width=widgetWidth,
@@ -1735,6 +1929,8 @@ try:
                                 mode_elapsed_s=(
                                     now_monotonic - modeState.last_switch
                                 ),
+                                entry_index=syncedEntryIndex,
+                                scroll_completion=activeScrollCompletion,
                             )
                             if config['dualScreen']:
                                 virtual1 = drawPlaneAlertSignage(
@@ -1745,6 +1941,7 @@ try:
                                     mode_elapsed_s=(
                                         now_monotonic - modeState.last_switch
                                     ),
+                                    entry_index=syncedEntryIndex,
                                 )
                         elif config["transport"]["fallbackMode"] == "train":
                             data = displayCaches["train"].snapshot(now_monotonic).value

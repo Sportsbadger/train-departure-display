@@ -11,7 +11,9 @@ LAST_LINE_TEXT = "****Last Line****"
 
 
 DEFAULT_ADSB_TOP_LEFT_TEMPLATE = "{summary_left}"
-DEFAULT_ADSB_TOP_RIGHT_TEMPLATE = "{summary_right}"
+DEFAULT_ADSB_TOP_RIGHT_TEMPLATE = (
+    "{aircraft_type}  {summary_speed}  {distance}  {altitude}"
+)
 DEFAULT_ADSB_SCROLL_TEMPLATE = "{detail}"
 DEFAULT_ADSB_NEXT_LEFT_TEMPLATE = "{loop_aircraft}"
 DEFAULT_ADSB_NEXT_RIGHT_TEMPLATE = "{loop_info}"
